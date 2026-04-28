@@ -12,6 +12,8 @@ import ADBClass
 import numpy as np
 from PIL import ImageChops
 
+from EASLogger import EASloggerSingleton
+
 
 class SetupAdb:
     def __init__(self, adb_path, adb_port, retry_count):
@@ -105,6 +107,9 @@ class weeklyTower:
         adb_is_connected = ADBClass.AdbSingleton.getInstance().connectDevice(adb_path=self.adb_path,
                                                                              adb_port=self.adb_port,
                                                                              retryCount=20)
+        if not adb_is_connected:
+            EASloggerSingleton.getInstance().info('./logs/log_test.txt', "连接模拟器失败，停止爬塔")
+            return False
         SetupAdbFlow = SetupAdb(adb_path=self.adb_path, adb_port=self.adb_port, retry_count=5)
         SetupAdbFlow.run()
 

@@ -262,7 +262,7 @@ class tapUntilMatchFixedPos(RetryNode):
 
 class DailyMaterialNode(BaseNode):
     def clickAutoCharacter(self, mission_status, mission_code):
-        with open('active_config.yaml', 'r') as file:
+        with open('active_config.yaml', 'r', encoding='utf-8') as file:
             config_data = yaml.safe_load(file)
             # print(config_data[0]['LevelAutomation'][0][mission_code])
             mission_list = config_data[0]['LevelAutomation']
@@ -469,7 +469,7 @@ class DailyMaterialNode(BaseNode):
 
     def GotoMiddleStep(self, destinationPage):
         print("GotoDifficultyStep ||| destinationPage: ", destinationPage)
-        if destinationPage[3] is "multi":
+        if destinationPage[3] == "multi":
             middleNo = destinationPage[4]
             ADBClass.AdbSingleton.getInstance().screen_capture('./img/GotoMiddleStepScreenshot.png')
             #crop image
@@ -517,7 +517,7 @@ class DailyMaterialNode(BaseNode):
 
         for item in scanRes:
             text = item[0]
-            match = re.search(r'關卡(\d+)', text)
+            match = re.search(r'[关關]卡(\d+)', text)
             if match:
                 number = int(match.group(1))
                 print(f"Found number: {number}", "||| DestinationPage(2): ", destinationPage[2], "||| Destination Diff: ", number - destinationPage[2])
@@ -556,14 +556,14 @@ class DailyMaterialNode(BaseNode):
 
                     for item in scanRes:
                         text = item[0]
-                        match = re.search(r'關卡(\d+)', text)
+                        match = re.search(r'[关關]卡(\d+)', text)
                         if match:
                             return "ARRIVED"
             else:
                 print("No number found.")
 
     def getMissionListFromConfig(self):
-        with open('active_config.yaml', 'r') as file:
+        with open('active_config.yaml', 'r', encoding='utf-8') as file:
             config_data = yaml.safe_load(file)
             return config_data[1]['Material_Mission']['mission'].split(',')
     def startMissionAuto(self, mission_status, mission_code):
@@ -580,7 +580,7 @@ class DailyMaterialNode(BaseNode):
                 return ("error", "level not avalible for autorun yet")
             cvres = self.cv2CheckImgExist('./Icons/IgnoreInstantAuto.png', './img/startMission.png')
             if cvres is not None:
-                with open('active_config.yaml', 'r') as file:
+                with open('active_config.yaml', 'r', encoding='utf-8') as file:
                     config_data = yaml.safe_load(file)
                     # print(config_data[0]['LevelAutomation'][0][mission_code])
                     isFreeAuto = config_data[0]['LevelAutomation'][mission_code]['isFreeAuto']
@@ -595,7 +595,7 @@ class DailyMaterialNode(BaseNode):
                 time.sleep(1)
             res = self.clickAutoCharacter(mission_status, mission_code)
             print(res)
-            if res[0] is "success":
+            if res[0] == "success":
                 ADBClass.AdbSingleton.getInstance().screen_capture('./img/startMission.png')
                 cvres = self.cv2CheckImgExist('./Icons/StartAutoBattle.png', './img/startMission.png')
                 ADBClass.AdbSingleton.getInstance().tap(cvres)
@@ -626,7 +626,7 @@ class DailyMaterialNode(BaseNode):
 
             for item in scanRes:
                 text = item[0]
-                match = text == '開始'
+                match = text in ('开始', '開始')
                 print("scanResPass: ", text, "||| match: ", match)
 
                 if match:
@@ -708,7 +708,7 @@ class DailyMaterialNode(BaseNode):
                 else:
                     suffix = int(suffix.lstrip("_"))
                     levelNo = None
-                with open('active_config.yaml', 'r') as file:
+                with open('active_config.yaml', 'r', encoding='utf-8') as file:
                     config_data = yaml.safe_load(file)
                     if config_data[0]['LevelAutomation'][list(config_data[0]['LevelAutomation'].keys())[index]]['isAuto'] is True:
                         category = "DailyMaterialAuto"
@@ -739,7 +739,7 @@ class DailyMaterialNode(BaseNode):
         return category, prefix, suffix, levelType, levelNo
     def daily_routine(self, input={}):
         missionList = self.getMissionListFromConfig()
-        with open('active_config.yaml', 'r') as file:
+        with open('active_config.yaml', 'r', encoding='utf-8') as file:
             config_data = yaml.safe_load(file)
             missionActiveNameList = list(config_data[0]['LevelAutomation'].keys())
         for index, mission in enumerate(missionList):

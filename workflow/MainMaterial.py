@@ -1,4 +1,5 @@
 import math
+import os
 import re
 import time
 
@@ -22,7 +23,7 @@ class mainMaterial:
         self.currentStage = 0
 
     def clickAutoCharacter(self, mission_status, mission_code):
-        with open('active_config.yaml', 'r') as file:
+        with open('active_config.yaml', 'r', encoding='utf-8') as file:
             config_data = yaml.safe_load(file)
             # print(config_data[0]['LevelAutomation'][0][mission_code])
             mission_list = config_data[0]['LevelAutomation']
@@ -117,6 +118,25 @@ class mainMaterial:
         else:
             return ("success", "Character found")
 
+    def confirmAutoDeployCharacters(self):
+        time.sleep(1)
+        screenshot_path = './img/autoDeployConfirm.png'
+        ADBClass.AdbSingleton.getInstance().screen_capture(screenshot_path)
+
+        for icon_path in ('./Icons/ConfirmButton.png', './Icons/DisabledConfirmButton.png'):
+            if not os.path.exists(icon_path):
+                continue
+            cvres = self.cv2CheckImgExist(icon_path, screenshot_path)
+            if cvres is not None:
+                ADBClass.AdbSingleton.getInstance().tap(cvres)
+                time.sleep(1)
+                return ("success", "auto deploy")
+
+        # 1280x720 fallback: confirmation button area in the deployment dialog.
+        ADBClass.AdbSingleton.getInstance().tap((640, 590))
+        time.sleep(1)
+        return ("success", "auto deploy fallback")
+
     def BackBtnClick(self):
         ADBClass.AdbSingleton.getInstance().tap((80, 34))
 
@@ -127,10 +147,19 @@ class mainMaterial:
             print("cv2 result (MATERIAL_MENU): ", res)
             if res:
                 return ("MATERIAL_MENU", res)
-            res = self.cv2CheckImgExist('./Icons/loggedInCheckImg.png', './img/levelCapture.png')
-            print("cv2 result (HOME): ", res)
+            res = self.cv2CheckImgExist('./Icons/loginStartGame.png', './img/levelCapture.png')
+            print("cv2 result (LOGIN_START): ", res)
             if res:
-                return ("HOME", res)
+                return ("LOGIN_START", res)
+            if os.path.exists('./Icons/MainPageCheck.png'):
+                res = self.cv2CheckImgExist('./Icons/MainPageCheck.png', './img/levelCapture.png')
+                print("cv2 result (MAIN_PAGE): ", res)
+                if res:
+                    return ("MAIN_PAGE", res)
+            res = self.cv2CheckImgExist('./Icons/loggedInCheckImg.png', './img/levelCapture.png')
+            print("cv2 result (MAIN_PAGE_FALLBACK): ", res)
+            if res:
+                return ("MAIN_PAGE_FALLBACK", res)
             res = self.cv2CheckImgExist('./Icons/1in3menu.png', './img/levelCapture.png')
             print("cv2 result (ONE_IN_THREE): ", res)
             if res:
@@ -143,7 +172,7 @@ class mainMaterial:
             print("cv2 result (OTHER_WITH_BACK_BTN): ", res)
             if res:
                 return ("OTHER_WITH_BACK_BTN", res)
-            return "OTHER"
+            return ("OTHER", None)
 
     def cv2CheckImgExist(self, patternPath, screenshotPath, isSingle=True):
         screenshot = cv2.imread(screenshotPath, 0)
@@ -201,12 +230,25 @@ class mainMaterial:
             case "ONE_IN_THREE":
                 ADBClass.AdbSingleton.getInstance().tap((290, 330))
                 return "ONGOING"
-            case "HOME":
+            case "LOGIN_START":
+                ADBClass.AdbSingleton.getInstance().tap(currentStatus[1])
+                EASloggerSingleton.getInstance().info('./logs/log_test.txt', "已点击进入游戏，等待加载")
+                time.sleep(5)
+                return "ONGOING"
+            case "MAIN_PAGE":
+                logged_in_pos = self.cv2CheckImgExist('./Icons/loggedInCheckImg.png', './img/levelCapture.png')
+                print("cv2 result (MAIN_PAGE_CLICK): ", logged_in_pos)
+                ADBClass.AdbSingleton.getInstance().tap(logged_in_pos or currentStatus[1])
+                return "ONGOING"
+            case "MAIN_PAGE_FALLBACK":
                 ADBClass.AdbSingleton.getInstance().tap(currentStatus[1])
                 return "ONGOING"
             case "OTHER_WITH_BACK_BTN":
                 ADBClass.AdbSingleton.getInstance().tap(currentStatus[1])
                 return "ONGOING"
+            case "OTHER":
+                EASloggerSingleton.getInstance().info('./logs/log_test.txt', "当前界面暂未识别，等待加载")
+                return "WAITING"
             case "MATERIAL_MENU":
                 if destinationPage[1] is not None:
                     match destinationPage[1]:
@@ -234,7 +276,7 @@ class mainMaterial:
 
     def GotoMiddleStep(self, destinationPage):
         print("GotoDifficultyStep ||| destinationPage: ", destinationPage)
-        if destinationPage[3] is "multi":
+        if destinationPage[3] == "multi":
             middleNo = destinationPage[4]
             ADBClass.AdbSingleton.getInstance().screen_capture('./img/GotoMiddleStepScreenshot.png')
             # crop image
@@ -255,6 +297,12 @@ class mainMaterial:
             else:
                 cvres = self.cv2CheckImgExist('./Icons/MiddleLevelENCIdentifier.png',
                                               './img/GotoMiddleStepScreenshotCroppedScreenshot.png', False)
+                if cvres is None or len(cvres) < middleNo:
+                    EASloggerSingleton.getInstance().info(
+                        './logs/log_test.txt',
+                        f"未找到第 {middleNo} 个中间关卡入口，停止刷图"
+                    )
+                    return False
                 tapPos = (cvres[middleNo - 1][0] + left, cvres[middleNo - 1][1] + top)
                 ADBClass.AdbSingleton.getInstance().tap(tapPos)
         return True
@@ -333,7 +381,7 @@ class mainMaterial:
                 print("No number found.")
 
     def getMissionListFromConfig(self):
-        with open('active_config.yaml', 'r') as file:
+        with open('active_config.yaml', 'r', encoding='utf-8') as file:
             config_data = yaml.safe_load(file)
             return config_data[1]['Material_Mission']['mission'].split(',')
 
@@ -351,7 +399,7 @@ class mainMaterial:
                 return ("error", "level not avalible for autorun yet")
             cvres = self.cv2CheckImgExist('./Icons/IgnoreInstantAuto.png', './img/startMission.png')
             if cvres is not None:
-                with open('active_config.yaml', 'r') as file:
+                with open('active_config.yaml', 'r', encoding='utf-8') as file:
                     config_data = yaml.safe_load(file)
                     # print(config_data[0]['LevelAutomation'][0][mission_code])
                     isFreeAuto = config_data[0]['LevelAutomation'][mission_code]['isFreeAuto']
@@ -364,9 +412,15 @@ class mainMaterial:
                         ADBClass.AdbSingleton.getInstance().tap(cvres)
                 print("cv2 result (startMissionBtn): ", cvres)
                 time.sleep(1)
-            res = self.clickAutoCharacter(mission_status, mission_code)
+            with open('active_config.yaml', 'r', encoding='utf-8') as file:
+                config_data = yaml.safe_load(file)
+                autoDeploy = config_data[0]['LevelAutomation'][mission_code].get('autoDeploy', False)
+            if autoDeploy:
+                res = self.confirmAutoDeployCharacters()
+            else:
+                res = self.clickAutoCharacter(mission_status, mission_code)
             print(res)
-            if res[0] is "success":
+            if res[0] == "success":
                 ADBClass.AdbSingleton.getInstance().screen_capture('./img/startMission.png')
                 cvres = self.cv2CheckImgExist('./Icons/StartAutoBattle.png', './img/startMission.png')
                 ADBClass.AdbSingleton.getInstance().tap(cvres)
@@ -398,7 +452,7 @@ class mainMaterial:
 
             for item in scanRes:
                 text = item[0]
-                match = text == '開始'
+                match = text in ('开始', '開始')
                 print("scanResPass: ", text, "||| match: ", match)
 
                 if match:
@@ -480,7 +534,7 @@ class mainMaterial:
                 else:
                     suffix = int(suffix.lstrip("_"))
                     levelNo = None
-                with open('active_config.yaml', 'r') as file:
+                with open('active_config.yaml', 'r', encoding='utf-8') as file:
                     config_data = yaml.safe_load(file)
                     if config_data[0]['LevelAutomation'][list(config_data[0]['LevelAutomation'].keys())[index]][
                         'isAuto'] is True:
@@ -513,27 +567,35 @@ class mainMaterial:
     def run(self):
         adb_is_connected = ADBClass.AdbSingleton.getInstance().connectDevice(adb_path=self.adb_path, adb_port=self.adb_port,
                                                                 retryCount=20)
-        EASloggerSingleton.getInstance().info('./logs/log_test.txt', "開始刷圖")
+        if not adb_is_connected:
+            EASloggerSingleton.getInstance().info('./logs/log_test.txt', "连接模拟器失败，停止刷图")
+            return False
+        EASloggerSingleton.getInstance().info('./logs/log_test.txt', "开始刷图")
         missionList = self.getMissionListFromConfig()
-        with open('active_config.yaml', 'r') as file:
+        with open('active_config.yaml', 'r', encoding='utf-8') as file:
             config_data = yaml.safe_load(file)
             missionActiveNameList = list(config_data[0]['LevelAutomation'].keys())
         for index, mission in enumerate(missionList):
-            loggingString = "刷圖: " + missionActiveNameList[index]
+            loggingString = "刷图: " + missionActiveNameList[index]
             if config_data[0]['LevelAutomation'][missionActiveNameList[index]]['isAuto'] is True:
-                loggingString += " (自動)"
+                loggingString += " (自动)"
                 loggingString += " | " + config_data[0]['LevelAutomation'][missionActiveNameList[index]]['characters']
+                if config_data[0]['LevelAutomation'][missionActiveNameList[index]].get('autoDeploy', False):
+                    loggingString += " (自动上阵)"
                 if config_data[0]['LevelAutomation'][missionActiveNameList[index]]['isFreeAuto'] is True:
-                    loggingString += " (章魚罐頭)"
+                    loggingString += " (章鱼罐头)"
             else:
-                loggingString += " (手動)"
+                loggingString += " (手动)"
 
             EASloggerSingleton.getInstance().info('./logs/log_test.txt', loggingString)
             missionActiveName = missionActiveNameList[index]
+            defaultDifficulty = config_data[0]['LevelAutomation'][missionActiveName].get('defaultDifficulty', False)
             missionStatus = self.mapMissionToStatus(index, mission)
             print("mission status: ", missionStatus)
             det_res = self.checkCurrentPageStatus(missionStatus)
-            while det_res[0] != "ARRIVED":
+            navigation_attempts = 0
+            while det_res[0] != "ARRIVED" and navigation_attempts < 20:
+                navigation_attempts += 1
                 det_res = self.checkCurrentPageStatus(missionStatus)
                 print("det_res", det_res)
                 GotoStepRes = self.GotoDailyMaterialStep(det_res, missionStatus)
@@ -541,9 +603,21 @@ class mainMaterial:
                 if GotoStepRes == "ARRIVED":
                     time.sleep(2)
                     break
+                if GotoStepRes == "WAITING":
+                    time.sleep(3)
+                    continue
                 time.sleep(2)
+            if navigation_attempts >= 20:
+                EASloggerSingleton.getInstance().info('./logs/log_test.txt', "跳转资源菜单超时，停止刷图")
+                return False
             GotoMiddleRes = self.GotoMiddleStep(missionStatus)
-            GotoDifficultyRes = self.GotoDifficultyStep(missionStatus)
+            if GotoMiddleRes is False:
+                return False
+            if defaultDifficulty:
+                EASloggerSingleton.getInstance().info('./logs/log_test.txt', "使用默认难度，跳过难度选择")
+                GotoDifficultyRes = "ARRIVED"
+            else:
+                GotoDifficultyRes = self.GotoDifficultyStep(missionStatus)
             if GotoDifficultyRes == "ARRIVED":
                 print("GotoDifficultyRes ARRIVED")
                 time.sleep(2)
@@ -551,7 +625,7 @@ class mainMaterial:
                     startMissionRes = self.startMissionAuto(missionStatus, missionActiveName)
                 elif missionStatus[0] == "DailyMaterialFight":
                     startMissionRes = self.startMissionFight()
-                    loggingString = "結束刷圖: " + missionActiveNameList[index] + " (手動)" + " | " + "已開始行動" + str(index) + "次"
+                    loggingString = "结束刷图: " + missionActiveNameList[index] + " (手动)" + " | " + "已开始行动" + str(index) + "次"
                     EASloggerSingleton.getInstance().info('./logs/log_test.txt', loggingString)
         # ADBClass.AdbSingleton.getInstance().screen_capture("loginCapture.png")
 

@@ -18,11 +18,13 @@ class StartApp:
         res = ADBClass.AdbSingleton.getInstance().getAllPackages()
         print(" avalible package", res)
 
-        if ADBClass.AdbSingleton.APP_PACKAGE in res:
+        app_package = ADBClass.AdbSingleton.getInstance().resolve_app_package(res)
+        if app_package:
             ADBClass.AdbSingleton.getInstance().startApp()
             return True
         else:
             print("App not found")
+            EASloggerSingleton.getInstance().info('./logs/log_test.txt', "未找到游戏应用，停止唤醒")
             return False
 
 class SetupAdb:
@@ -53,12 +55,17 @@ class screenshot_cv2_match_template_login:
         tap_pos = (0, 0)
         cv2_img_screenshot_rect = (0, 0, 0, 0)
         cv2_img_screenshot_result = (0, 0, 0, 0)
-        while isValid is False:
+        for _ in range(self.retry_count):
             ADBClass.AdbSingleton.getInstance().screen_capture(self.screenshot)
             screenshot = cv2.imread(self.screenshot, 0)
             pattern = cv2.imread(self.icon, 0)
-            result = cv2.matchTemplate(pattern, screenshot, cv2.TM_CCOEFF_NORMED)
-            threshold = 0.8
+            if screenshot is None or pattern is None:
+                time.sleep(1)
+                continue
+            result = cv2.matchTemplate(screenshot, pattern, cv2.TM_CCOEFF_NORMED)
+            _, max_val, _, max_loc = cv2.minMaxLoc(result)
+            print("template max score: ", max_val, "location: ", max_loc, "icon: ", self.icon)
+            threshold = 0.75
 
             # Find the location of matched regions above the threshold
             locations = np.where(result >= threshold)
@@ -89,8 +96,19 @@ class screenshot_cv2_match_template_login:
                     for subPattern in subPattern:
                         print("subPattern: ", subPattern)
                         cv_screenshot = cv2.imread(subPattern["subPattern"], 0)
-                        subPatternResult = cv2.matchTemplate(cv_screenshot, screenshot, cv2.TM_CCOEFF_NORMED)
-                        subPatternThreshold = 0.8
+                        if cv_screenshot is None:
+                            continue
+                        subPatternResult = cv2.matchTemplate(screenshot, cv_screenshot, cv2.TM_CCOEFF_NORMED)
+                        _, subPatternMaxVal, _, subPatternMaxLoc = cv2.minMaxLoc(subPatternResult)
+                        print(
+                            "subPattern max score: ",
+                            subPatternMaxVal,
+                            "location: ",
+                            subPatternMaxLoc,
+                            "icon: ",
+                            subPattern["subPattern"]
+                        )
+                        subPatternThreshold = 0.75
                         subPatternLocations = np.where(subPatternResult >= subPatternThreshold)
                         if len(subPatternLocations[0]) > 0:
                             isValid = True
@@ -105,6 +123,11 @@ class screenshot_cv2_match_template_login:
                     subPatternRes = False
                     print("There is no sub pattern.")
             cv2_img_screenshot_result = locations
+            if not isValid:
+                time.sleep(1)
+        if isValid is False:
+            EASloggerSingleton.getInstance().info('./logs/log_test.txt', "登录界面识别超时，停止唤醒")
+            return None
         return (tap_pos, cv2_img_screenshot_rect, cv2_img_screenshot_result)
 
 class loginReward:
@@ -175,14 +198,17 @@ class runStartApp:
         #                     datefmt='%H:%M:%S',
         #                     level=logging.DEBUG)
 
-        EASloggerSingleton.getInstance().info('./logs/log_test.txt', "開始喚醒")
+        EASloggerSingleton.getInstance().info('./logs/log_test.txt', "开始唤醒")
 
         adb_is_connected = ADBClass.AdbSingleton.getInstance().connectDevice(adb_path=self.adb_path, adb_port=self.adb_port,
                                                                 retryCount=20)
+        if not adb_is_connected:
+            return False
         SetupAdbFlow = SetupAdb(adb_path=self.adb_path, adb_port=self.adb_port, retry_count=5)
         SetupAdbFlow.run()
         StartAppFlow = StartApp(adb_path=self.adb_path, adb_port=self.adb_port)
-        StartAppFlow.run()
+        if not StartAppFlow.run():
+            return False
 
         time.sleep(5)
         #"parameters" is currentlt useless
@@ -202,6 +228,8 @@ class runStartApp:
             , current_stage=self.currentStage
         )
         res = loginBulletinCloseFlow.run()
+        if res is None:
+            return False
         if self.currentStage != loginBulletinCloseFlow.current_stage:
             self.currentStage = loginBulletinCloseFlow.current_stage
         else:
@@ -219,6 +247,8 @@ class runStartApp:
                  , current_stage=self.currentStage
             )
             res = loginButtonFlow.run()
+            if res is None:
+                return False
             if self.currentStage != loginBulletinCloseFlow.current_stage:
                 self.currentStage = loginBulletinCloseFlow.current_stage
             else:
@@ -227,4 +257,4 @@ class runStartApp:
             time.sleep(10)
             loginRewardFlow = loginReward()
             loginRewardFlow.run()
-            EASloggerSingleton.getInstance().info('./logs/log_test.txt', "喚醒完畢")
+            EASloggerSingleton.getInstance().info('./logs/log_test.txt', "唤醒完毕")

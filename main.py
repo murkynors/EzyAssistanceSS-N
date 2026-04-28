@@ -11,6 +11,7 @@ import string
 import sys
 import threading
 import time
+import traceback
 from random import choices
 
 from PIL import Image
@@ -45,7 +46,7 @@ class Signals(QtCore.QObject):
     finished = QtCore.Signal()
 class scheduleMission:
     @classmethod
-    def ConfigInit(cls, fullId, auto, freeAuto, characterList):
+    def ConfigInit(cls, fullId, auto, freeAuto, characterList, autoDeploy=False, defaultDifficulty=False):
         allMissionList = []
         missionId = None
         difficulty = None
@@ -73,12 +74,17 @@ class scheduleMission:
                     difficulty = int(difficulty.lstrip("_"))
                     midMission = None
 
+                if difficulty not in allDifficulty:
+                    difficulty = allDifficulty[-1]
                 difficultyInfoArrIndex = allDifficulty.index(difficulty)
                 allDifficultyCharCount = mission["difficultyAutoCharCount"]
-                maxCharCount = allDifficultyCharCount[difficultyInfoArrIndex]
+                if len(allDifficultyCharCount) == 1:
+                    maxCharCount = allDifficultyCharCount[0]
+                else:
+                    maxCharCount = allDifficultyCharCount[difficultyInfoArrIndex]
                 _id = random.randint(0, 100000)
 
-        return cls(missionId, missionName, midMission, difficulty, auto, freeAuto, _id, characterList, maxCharCount, allMissionList, allDifficultyCharCount, allDifficulty, allMiddleMission, missionArrIndex)
+        return cls(missionId, missionName, midMission, difficulty, auto, freeAuto, autoDeploy, defaultDifficulty, _id, characterList, maxCharCount, allMissionList, allDifficultyCharCount, allDifficulty, allMiddleMission, missionArrIndex)
 
     @classmethod
     def UIInit(cls, missionParam, missionBtn: QPushButton = None, missionRow: QWidget = None):
@@ -88,7 +94,7 @@ class scheduleMission:
         allMidMission = []
         missionArrIndex = None
         if os.path.exists('app_config.yaml'):
-            with open('app_config.yaml', 'r') as file:
+            with open('app_config.yaml', 'r', encoding='utf-8') as file:
                 config_data = yaml.safe_load(file)
                 allMissionList = config_data[4]["missionInfo"]
         if missionParam is not None:
@@ -127,16 +133,20 @@ class scheduleMission:
         characterList = []
         auto = True
         freeAuto = False
+        autoDeploy = False
+        defaultDifficulty = False
         _id = random.randint(0, 100000)
-        return cls(missionId, missionName, midMission, difficulty, auto, freeAuto, _id, characterList, maxCharCount, allMissionList, allDifficultyCharCount, allDifficulty, allMidMission, missionArrIndex, missionBtn,missionRow)
+        return cls(missionId, missionName, midMission, difficulty, auto, freeAuto, autoDeploy, defaultDifficulty, _id, characterList, maxCharCount, allMissionList, allDifficultyCharCount, allDifficulty, allMidMission, missionArrIndex, missionBtn,missionRow)
 
-    def __init__(self, missionId, missionName, midMission, difficulty, auto, freeAuto, _id, characterList, maxCharCount, allMissionList, allDifficultyCharCount, allDifficulty, allMidMission, missionArrIndex, missionBtn: QPushButton = None, missionRow: QWidget = None):
+    def __init__(self, missionId, missionName, midMission, difficulty, auto, freeAuto, autoDeploy, defaultDifficulty, _id, characterList, maxCharCount, allMissionList, allDifficultyCharCount, allDifficulty, allMidMission, missionArrIndex, missionBtn: QPushButton = None, missionRow: QWidget = None):
         self.missionId = missionId
         self.missionName = missionName
         self.midMission = midMission
-        self.difficulty = difficulty
+        self.difficulty = int(difficulty)
         self.auto = auto
         self.freeAuto = freeAuto
+        self.autoDeploy = autoDeploy
+        self.defaultDifficulty = defaultDifficulty
         self.id = _id
         self.characterList = characterList
         self.maxCharCount = maxCharCount
@@ -151,9 +161,13 @@ class scheduleMission:
 
 
     def setDifficulty(self, difficulty):
-        self.difficulty = difficulty
-        self.maxCharCount = self.allDifficultyCharCount[self.allDifficulty.index(int(self.difficulty))]
-        if len(self.characterList) > self.maxCharCount:
+        self.difficulty = int(difficulty)
+        difficultyIndex = self.allDifficulty.index(self.difficulty)
+        if len(self.allDifficultyCharCount) == 1:
+            self.maxCharCount = self.allDifficultyCharCount[0]
+        else:
+            self.maxCharCount = self.allDifficultyCharCount[difficultyIndex]
+        if self.maxCharCount >= 0 and len(self.characterList) > self.maxCharCount:
             self.characterList = self.characterList[:self.maxCharCount]
 
     def setMidMission(self, midMission):
@@ -188,10 +202,16 @@ class scheduleMission:
             if self.difficulty in self.allDifficulty:
                 difficultyIndex = self.allDifficulty.index(self.difficulty)
                 self.difficulty = self.allDifficulty[difficultyIndex]
-                self.maxCharCount = self.allDifficultyCharCount[difficultyIndex]
+                if len(self.allDifficultyCharCount) == 1:
+                    self.maxCharCount = self.allDifficultyCharCount[0]
+                else:
+                    self.maxCharCount = self.allDifficultyCharCount[difficultyIndex]
             else:
                 self.difficulty = self.allDifficulty[0]
-                self.maxCharCount = self.allDifficultyCharCount[self.allDifficulty.index(self.difficulty)]
+                if len(self.allDifficultyCharCount) == 1:
+                    self.maxCharCount = self.allDifficultyCharCount[0]
+                else:
+                    self.maxCharCount = self.allDifficultyCharCount[self.allDifficulty.index(self.difficulty)]
 
             if self.midMission in self.allMidMission:
                 midMissionIndex = self.allMidMission.index(self.midMission)
@@ -222,8 +242,24 @@ class FlowThread(QThread):
         self.flow = flow
 
     def run(self):
-        for fw in self.flow:
-            fw.run()
+        try:
+            for fw in self.flow:
+                if self.isInterruptionRequested() or ADBClass.AdbSingleton.getInstance().stop_requested:
+                    EASloggerSingleton.getInstance().info('./logs/log_test.txt', "流程已停止")
+                    break
+                result = fw.run()
+                if result is False:
+                    EASloggerSingleton.getInstance().info('./logs/log_test.txt', "流程因前置步骤失败已停止")
+                    break
+        except RuntimeError as exc:
+            if str(exc) == "流程已停止":
+                EASloggerSingleton.getInstance().info('./logs/log_test.txt', "流程已停止")
+            else:
+                traceback.print_exc()
+                EASloggerSingleton.getInstance().info('./logs/log_test.txt', f"流程异常停止：{exc}")
+        except Exception as exc:
+            traceback.print_exc()
+            EASloggerSingleton.getInstance().info('./logs/log_test.txt', f"流程异常停止：{exc}")
         self.finished.emit()
 
 class Monitor:
@@ -258,7 +294,7 @@ class OctoUI(QtWidgets.QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("MAA - 鈴蘭之劍")
+        self.setWindowTitle("MAA - 铃兰")
         self.selectedFiles = []
         self.setMinimumSize(1200, 800)
         self.runProg = True
@@ -274,7 +310,7 @@ class OctoUI(QtWidgets.QMainWindow):
         self.missionNameList = []
         self.missionInfoList = []
         if os.path.exists('app_config.yaml'):
-            with open('app_config.yaml', 'r') as file:
+            with open('app_config.yaml', 'r', encoding='utf-8') as file:
                 config_data = yaml.safe_load(file)
                 self.missionInfoList = config_data[4]["missionInfo"]
                 for mission in config_data[4]["missionInfo"]:
@@ -354,8 +390,9 @@ class OctoUI(QtWidgets.QMainWindow):
         self.startAppOptionLayout = QtWidgets.QHBoxLayout(self.startAppOptionWidget)
         self.startAppOptionLayout.setAlignment(QtCore.Qt.AlignTop)
 
-        self.startAppCheckbox = QCheckBox('開始喚醒', self)
-        self.startAppSetting = QtWidgets.QPushButton("設定")
+        self.startAppCheckbox = QCheckBox('开始唤醒', self)
+        self.startAppCheckbox.stateChanged.connect(self.saveTaskSelection)
+        self.startAppSetting = QtWidgets.QPushButton("设置")
 
         self.startAppOptionLayout.addWidget(self.startAppCheckbox)
         self.startAppOptionLayout.addStretch()
@@ -366,8 +403,9 @@ class OctoUI(QtWidgets.QMainWindow):
         self.farmResOptionLayout = QtWidgets.QHBoxLayout(self.farmResOptionWidget)
         self.farmResOptionLayout.setAlignment(QtCore.Qt.AlignTop)
 
-        self.farmResCheckbox = QCheckBox('自動刷圖', self)
-        self.farmResSetting = QtWidgets.QPushButton("設定")
+        self.farmResCheckbox = QCheckBox('自动刷图', self)
+        self.farmResCheckbox.stateChanged.connect(self.saveTaskSelection)
+        self.farmResSetting = QtWidgets.QPushButton("设置")
 
         self.farmResOptionLayout.addWidget(self.farmResCheckbox)
         self.farmResOptionLayout.addStretch()
@@ -377,8 +415,9 @@ class OctoUI(QtWidgets.QMainWindow):
         self.receiveRewardOptionLayout = QtWidgets.QHBoxLayout(self.receiveRewardOptionWidget)
         self.receiveRewardOptionLayout.setAlignment(QtCore.Qt.AlignTop)
 
-        self.receiveRewardCheckbox = QCheckBox('領取獎勵', self)
-        self.receiveRewardSetting = QtWidgets.QPushButton("設定")
+        self.receiveRewardCheckbox = QCheckBox('领取奖励', self)
+        self.receiveRewardCheckbox.stateChanged.connect(self.saveTaskSelection)
+        self.receiveRewardSetting = QtWidgets.QPushButton("设置")
 
         self.receiveRewardOptionLayout.addWidget(self.receiveRewardCheckbox)
         self.receiveRewardOptionLayout.addStretch()
@@ -387,7 +426,7 @@ class OctoUI(QtWidgets.QMainWindow):
         self.taskBox = QtWidgets.QGroupBox()
         self.taskBox.setStyleSheet("QGroupBox {border: 1px solid gray; border-radius: 5px; padding: 20px; margin:50px; margin-right: 0px; margin-left: 20px;}")
 
-        self.StartBtn = QtWidgets.QPushButton("啟動")
+        self.StartBtn = QtWidgets.QPushButton("启动")
         self.StartBtn.connect(self.StartBtn, QtCore.SIGNAL("clicked()"), lambda: self.startMainFlow([self.startAppCheckbox.isChecked(), self.farmResCheckbox.isChecked(), self.receiveRewardCheckbox.isChecked()]))
 
         self.StopBtn = QtWidgets.QPushButton("停止")
@@ -481,22 +520,22 @@ class OctoUI(QtWidgets.QMainWindow):
         self.flineEditsScrollArea.setWidgetResizable(True)
         self.flineEditsScrollArea.setStyleSheet("QWidget {border: 1px solid gray; border-radius: 5px;}")
 
-        self.saveSettingBtn = QtWidgets.QPushButton("儲存檔案")
+        self.saveSettingBtn = QtWidgets.QPushButton("保存文件")
         self.saveSettingBtn.clicked.connect(
             lambda: self.save_preset(self.missionPresetDropdown.currentText())
         )
 
-        self.loadSettingBtn = QtWidgets.QPushButton("加載檔案")
+        self.loadSettingBtn = QtWidgets.QPushButton("加载文件")
         self.loadSettingBtn.clicked.connect(
             lambda: self.onLoadMissionPreset(self.missionPresetDropdown.currentText())
         )
 
         # self.fAddButton.clicked.connect(self.add_empty_mission)
 
-        self.fAddButton = QtWidgets.QPushButton("新增任務")
+        self.fAddButton = QtWidgets.QPushButton("新增任务")
         self.fAddButton.clicked.connect(self.add_empty_mission)
 
-        self.missionRemoveButton = QtWidgets.QPushButton("刪除任務")
+        self.missionRemoveButton = QtWidgets.QPushButton("删除任务")
         self.missionRemoveButton.connect(self.missionRemoveButton, QtCore.SIGNAL("clicked()"), self.remove_missions)
         # --------------------------------------------------------------------------------------------------------------
         self.newPresetButton = QtWidgets.QPushButton("另存為")
@@ -530,7 +569,7 @@ class OctoUI(QtWidgets.QMainWindow):
         self.missionPresetDropdownLayout.addWidget(self.missionPresetDropdown)
         # --------------------------------------------------------------------------------------------------------------
 
-        self.missionSaveButton = QtWidgets.QPushButton("啟用當前流程")
+        self.missionSaveButton = QtWidgets.QPushButton("启用当前流程")
         self.missionSaveButton.connect(self.missionSaveButton, QtCore.SIGNAL("clicked()"), self.save_missions)
 
         self.missionSettingSLWidget = QtWidgets.QWidget()
@@ -550,7 +589,7 @@ class OctoUI(QtWidgets.QMainWindow):
         self.missionSettingDifficultyLayout = QtWidgets.QHBoxLayout()
         self.missionSettingDifficultyWidget.setLayout(self.missionSettingDifficultyLayout)
 
-        self.missionSettingDifficultyLabel = QtWidgets.QLabel("難度")
+        self.missionSettingDifficultyLabel = QtWidgets.QLabel("难度")
         self.missionSettingDifficultyDropdown = QtWidgets.QComboBox()
         self.missionSettingDifficultyDropdown.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
@@ -606,6 +645,7 @@ class OctoUI(QtWidgets.QMainWindow):
         self.heroListScrollArea.setStyleSheet("QWidget {border: 1px solid gray; border-radius: 5px;}")
 
         self.charSelectionList = []
+        self.selectedCharacterName = None
         # initializ a array with 9 empty buttons
         # for i in range(len(self.characterNameList)):
         #     charBtn = QtWidgets.QPushButton(self.characterNameList[i])
@@ -613,21 +653,14 @@ class OctoUI(QtWidgets.QMainWindow):
         #     self.charSelectionList.append(charBtn)
         #     charBtn.connect(charBtn, QtCore.SIGNAL("clicked()"), lambda: self.selectMissionEdit(i))
         self.heroListGridTitle = QtWidgets.QLabel("Character Selection: ")
-        for i in range(len(self.characterNameList)):
-            row = int(i/3)
-            col = i%3
-            print(row, col, self.characterNameList[i])
-            charBtn = QtWidgets.QPushButton(self.characterNameList[i])
-            self.heroListGrid.addWidget(charBtn, row, col)
-            self.charSelectionList.append(charBtn)
-            charBtn.connect(charBtn, QtCore.SIGNAL("clicked()"),
-                            lambda pi=i, _btn = charBtn: self.selectCharacter(self.characterNameList[pi], _btn))
-            charBtn.setStyleSheet("QPushButton {background-color: #0E2369;}")
+        for characterName in self.characterNameList:
+            self.add_character_button(characterName)
         self.updateCharacterGridStatus()
-        self.heroSettingAddButton = QtWidgets.QPushButton("Add Hero")
+        self.heroSettingAddButton = QtWidgets.QPushButton("新增角色")
         self.heroSettingAddButton.clicked.connect(self.add_empty_character)
 
-        self.heroSettingClearButton = QtWidgets.QPushButton("Remove Hero")
+        self.heroSettingClearButton = QtWidgets.QPushButton("清除选择")
+        self.heroSettingClearButton.clicked.connect(self.clear_current_character_selection)
 
         #--------------------------------------------------------------------------------------------------------------
         self.heroSettingButtonWidget = QtWidgets.QWidget()
@@ -636,7 +669,7 @@ class OctoUI(QtWidgets.QMainWindow):
         self.heroSettingButtonLayout.addWidget(self.heroSettingAddButton)
         self.heroSettingButtonLayout.addWidget(self.heroSettingClearButton)
 
-        self.missionSettingLabel = QtWidgets.QLabel("關卡設定")
+        self.missionSettingLabel = QtWidgets.QLabel("关卡设置")
 
         self.missionSettingWidget = QtWidgets.QWidget()
         self.missionSettingWidget.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
@@ -672,11 +705,37 @@ class OctoUI(QtWidgets.QMainWindow):
         self.missionSettingFreeAutoLayout.addWidget(self.missionSettingFreeAutoSwitchWidget)
 
         #--------------------------------------------------------------------------------------------------------------
+        self.missionSettingAutoDeployWidget = QtWidgets.QWidget()
+        self.missionSettingAutoDeployLayout = QtWidgets.QHBoxLayout()
+        self.missionSettingAutoDeployWidget.setLayout(self.missionSettingAutoDeployLayout)
+
+        self.missionSettingAutoDeployLabelWidget = QtWidgets.QLabel("自动上阵")
+        self.missionSettingAutoDeploySwitchWidget = QtWidgets.QCheckBox()
+        self.missionSettingAutoDeploySwitchWidget.clicked.connect(self.updateAutoDeployStatus)
+
+        self.missionSettingAutoDeployLayout.addWidget(self.missionSettingAutoDeployLabelWidget)
+        self.missionSettingAutoDeployLayout.addStretch()
+        self.missionSettingAutoDeployLayout.addWidget(self.missionSettingAutoDeploySwitchWidget)
+
+        #--------------------------------------------------------------------------------------------------------------
+        self.missionSettingDefaultDifficultyWidget = QtWidgets.QWidget()
+        self.missionSettingDefaultDifficultyLayout = QtWidgets.QHBoxLayout()
+        self.missionSettingDefaultDifficultyWidget.setLayout(self.missionSettingDefaultDifficultyLayout)
+
+        self.missionSettingDefaultDifficultyLabelWidget = QtWidgets.QLabel("默认难度")
+        self.missionSettingDefaultDifficultySwitchWidget = QtWidgets.QCheckBox()
+        self.missionSettingDefaultDifficultySwitchWidget.clicked.connect(self.updateDefaultDifficultyStatus)
+
+        self.missionSettingDefaultDifficultyLayout.addWidget(self.missionSettingDefaultDifficultyLabelWidget)
+        self.missionSettingDefaultDifficultyLayout.addStretch()
+        self.missionSettingDefaultDifficultyLayout.addWidget(self.missionSettingDefaultDifficultySwitchWidget)
+
+        #--------------------------------------------------------------------------------------------------------------
         self.missionSettingDifficultyWidget = QtWidgets.QWidget()
         self.missionSettingDifficultyLayout = QtWidgets.QHBoxLayout()
         self.missionSettingDifficultyWidget.setLayout(self.missionSettingDifficultyLayout)
 
-        self.missionSettingDifficultyLabel = QtWidgets.QLabel("難度")
+        self.missionSettingDifficultyLabel = QtWidgets.QLabel("难度")
         self.missionSettingDifficultyDropdown = QtWidgets.QComboBox()
         self.missionSettingDifficultyDropdown.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
@@ -697,7 +756,7 @@ class OctoUI(QtWidgets.QMainWindow):
         self.missionSettingMidMissionLayout = QtWidgets.QHBoxLayout()
         self.missionSettingMidMissionWidget.setLayout(self.missionSettingMidMissionLayout)
 
-        self.missionSettingMidMissionLabel = QtWidgets.QLabel("難度")
+        self.missionSettingMidMissionLabel = QtWidgets.QLabel("分页")
         self.missionSettingMidMissionDropdown = QtWidgets.QComboBox()
         self.missionSettingMidMissionDropdown.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
@@ -717,9 +776,13 @@ class OctoUI(QtWidgets.QMainWindow):
 
         self.missionSettingFreeAutoSwitchWidget.setEnabled(False)
         self.missionSettingAutoOrManuelSwitchWidget.setEnabled(False)
+        self.missionSettingAutoDeploySwitchWidget.setEnabled(False)
+        self.missionSettingDefaultDifficultySwitchWidget.setEnabled(False)
 
         self.missionSettingLayout.addWidget(self.missionSettingAutoOrManuelWidget)
         self.missionSettingLayout.addWidget(self.missionSettingFreeAutoWidget)
+        self.missionSettingLayout.addWidget(self.missionSettingAutoDeployWidget)
+        self.missionSettingLayout.addWidget(self.missionSettingDefaultDifficultyWidget)
         self.missionSettingLayout.addWidget(self.missionSettingDifficultyWidget)
         self.missionSettingLayout.addWidget(self.missionSettingMidMissionWidget)
         self.missionSettingLayout.addStretch()
@@ -752,18 +815,45 @@ class OctoUI(QtWidgets.QMainWindow):
 
         self.adbDirTextEdit = QtWidgets.QLineEdit()
         self.connectionPortTextEdit = QtWidgets.QLineEdit()
+        self.controlModeDropdown = QtWidgets.QComboBox()
+        self.controlModeDropdown.addItems(["window", "adb"])
+        self.windowTitleTextEdit = QtWidgets.QLineEdit()
+        self.processNameTextEdit = QtWidgets.QLineEdit()
+        self.baseResolutionTextEdit = QtWidgets.QLineEdit()
+        self.ocrLanguageDropdown = QtWidgets.QComboBox()
+        self.ocrLanguageDropdown.addItems(["ch_sim,en", "ch_tra,en"])
 
         if os.path.exists('app_config.yaml'):
-            with open('app_config.yaml', 'r') as file:
+            with open('app_config.yaml', 'r', encoding='utf-8') as file:
                 config_data = yaml.safe_load(file)
-                print(config_data[0]['adbDir'])
-                print(config_data[1]['connectionPort'])
-                self.adbDirTextEdit.setText(config_data[0]['adbDir'])
-                self.connectionPortTextEdit.setText(config_data[1]['connectionPort'])
+                config_lookup = {}
+                for item in config_data:
+                    if isinstance(item, dict):
+                        config_lookup.update(item)
+                print(config_lookup.get('adbDir', ''))
+                print(config_lookup.get('connectionPort', ''))
+                self.adbDirTextEdit.setText(config_lookup.get('adbDir', ''))
+                self.connectionPortTextEdit.setText(config_lookup.get('connectionPort', ''))
+                self.controlModeDropdown.setCurrentText(config_lookup.get('controlMode', 'window'))
+                self.windowTitleTextEdit.setText(config_lookup.get('windowTitle', '铃兰'))
+                self.processNameTextEdit.setText(config_lookup.get('processName', 'SoC.exe'))
+                base_resolution = config_lookup.get('baseResolution', [1280, 720])
+                self.baseResolutionTextEdit.setText(f"{base_resolution[0]}x{base_resolution[1]}")
+                ocr_languages = config_lookup.get('ocrLanguages', ['ch_sim', 'en'])
+                self.ocrLanguageDropdown.setCurrentText(",".join(ocr_languages))
+                task_selection = config_lookup.get('taskSelection', {})
+                self.startAppCheckbox.setChecked(task_selection.get('startApp', False))
+                self.farmResCheckbox.setChecked(task_selection.get('farmResources', False))
+                self.receiveRewardCheckbox.setChecked(task_selection.get('receiveReward', False))
 
 
-        self.tabFormLayout.addRow("ADB路徑", self.adbDirTextEdit)
-        self.tabFormLayout.addRow("連接地址", self.connectionPortTextEdit)
+        self.tabFormLayout.addRow("控制模式", self.controlModeDropdown)
+        self.tabFormLayout.addRow("窗口标题", self.windowTitleTextEdit)
+        self.tabFormLayout.addRow("进程名", self.processNameTextEdit)
+        self.tabFormLayout.addRow("基准分辨率", self.baseResolutionTextEdit)
+        self.tabFormLayout.addRow("OCR语言", self.ocrLanguageDropdown)
+        self.tabFormLayout.addRow("ADB路径", self.adbDirTextEdit)
+        self.tabFormLayout.addRow("连接地址", self.connectionPortTextEdit)
 
         self.applySetting = QtWidgets.QPushButton("Apply")
         self.applySetting.clicked.connect(self.applySettingAction)
@@ -773,15 +863,15 @@ class OctoUI(QtWidgets.QMainWindow):
         self.tabSettingLayout.addLayout(self.settingActionRow)
         # Add Tab 1 to the tabs
         self.tabs.addTab(self.tab1, "一鍵刷資源")
-        self.tabs.addTab(self.fixVideoTabWidget, "刷圖流程")
-        self.tabs.addTab(self.tabSetting, "設定")
+        self.tabs.addTab(self.fixVideoTabWidget, "刷图流程")
+        self.tabs.addTab(self.tabSetting, "设置")
 
 
         # Add tabs to the main window
         self.setCentralWidget(self.tabs)
 
         # Set window properties
-        self.setWindowTitle("MAA Assistance SS - 鈴蘭之劍")
+        self.setWindowTitle("MAA Assistance SS - 铃兰")
         self.setGeometry(100, 100, 800, 600)
 
         self.initMissions()
@@ -886,7 +976,9 @@ class OctoUI(QtWidgets.QMainWindow):
                 characters = config_data[0]['LevelAutomation'][missionId]["characters"]
                 isAuto = config_data[0]['LevelAutomation'][missionId]["isAuto"]
                 isFreeAuto = config_data[0]['LevelAutomation'][missionId]["isFreeAuto"]
-                mission = scheduleMission.ConfigInit(shortFormMissionId, isAuto, isFreeAuto, characters.split(','))
+                autoDeploy = config_data[0]['LevelAutomation'][missionId].get("autoDeploy", False)
+                defaultDifficulty = config_data[0]['LevelAutomation'][missionId].get("defaultDifficulty", False)
+                mission = scheduleMission.ConfigInit(shortFormMissionId, isAuto, isFreeAuto, characters.split(','), autoDeploy, defaultDifficulty)
                 # -----------------------------------------------------------------------------------------------------
                 newMissionRowWidget = QtWidgets.QWidget()
                 newMissionRowLayout = QtWidgets.QHBoxLayout()
@@ -929,7 +1021,13 @@ class OctoUI(QtWidgets.QMainWindow):
 
         # Print the result to the console
         print("completedFlow")
+        self.thread_pool = []
     def startMainFlow(self, taskCheckBoxArray):
+        self.saveTaskSelection()
+        for thread in getattr(self, "thread_pool", []):
+            if thread.isRunning():
+                EASloggerSingleton.getInstance().info('./logs/log_test.txt', "已有流程正在运行，请先停止或等待结束")
+                return
 
         file_path = 'logs\\log_test.txt'
 
@@ -937,6 +1035,9 @@ class OctoUI(QtWidgets.QMainWindow):
         with open(file_path, 'w') as file:
             # Use the truncate() method to clear the file content
             file.truncate(0)
+        self.lastReadPtr = 0
+        ADBClass.AdbSingleton.getInstance().resetStop()
+        EASloggerSingleton.getInstance().info('./logs/log_test.txt', "开始执行流程")
 
         thread_pool = QThreadPool.globalInstance()
         thread_pool.setMaxThreadCount(1)
@@ -958,13 +1059,60 @@ class OctoUI(QtWidgets.QMainWindow):
         #     flow.executeFlow()
 
     def stopMainFlow(self):
+        if not getattr(self, "thread_pool", None):
+            print("停止：当前没有运行中的流程")
+            EASloggerSingleton.getInstance().info('./logs/log_test.txt', "停止：当前没有运行中的流程")
+            return
+        print("停止：已请求停止流程")
+        EASloggerSingleton.getInstance().info('./logs/log_test.txt', "停止：已请求停止流程")
+        ADBClass.AdbSingleton.getInstance().requestStop()
         for thread in self.thread_pool:
-            thread.terminate()
+            if thread.isRunning():
+                thread.requestInterruption()
+                if not thread.wait(1000):
+                    EASloggerSingleton.getInstance().info('./logs/log_test.txt', "正在停止流程，请稍候")
+                    return
+        self.thread_pool = []
+        print("停止：流程已结束")
+        EASloggerSingleton.getInstance().info('./logs/log_test.txt', "停止：流程已结束")
+
+    def saveTaskSelection(self):
+        if not hasattr(self, "startAppCheckbox"):
+            return
+        if os.path.exists('app_config.yaml'):
+            with open('app_config.yaml', 'r', encoding='utf-8') as file:
+                data = yaml.safe_load(file) or []
+        else:
+            data = []
+
+        runtime_config = None
+        for item in data:
+            if isinstance(item, dict) and 'controlMode' in item:
+                runtime_config = item
+                break
+        if runtime_config is None:
+            runtime_config = {}
+            data.append(runtime_config)
+
+        runtime_config['taskSelection'] = {
+            'startApp': self.startAppCheckbox.isChecked(),
+            'farmResources': self.farmResCheckbox.isChecked(),
+            'receiveReward': self.receiveRewardCheckbox.isChecked(),
+        }
+
+        with open('app_config.yaml', 'w', encoding='utf-8') as file:
+            yaml.safe_dump(data, file, allow_unicode=True, sort_keys=False)
 
     def updateFreeAutoStatus(self):
         self.editingMission.freeAuto = self.missionSettingFreeAutoSwitchWidget.isChecked()
     def updateAutoOrManuelStatus(self):
         self.editingMission.auto = self.missionSettingAutoOrManuelSwitchWidget.isChecked()
+    def updateAutoDeployStatus(self):
+        self.editingMission.autoDeploy = self.missionSettingAutoDeploySwitchWidget.isChecked()
+    def updateDefaultDifficultyStatus(self):
+        self.editingMission.defaultDifficulty = self.missionSettingDefaultDifficultySwitchWidget.isChecked()
+        self.missionSettingDifficultyDropdown.setEnabled(not self.editingMission.defaultDifficulty)
+        self.missionSettingMidMissionDropdown.setEnabled(not self.editingMission.defaultDifficulty)
     def constructFlow(self, taskCheckBoxArray):
         self.MainFlow = []
         if taskCheckBoxArray[0]:
@@ -982,13 +1130,49 @@ class OctoUI(QtWidgets.QMainWindow):
 
     def applySettingAction(self):
         print("applySettingAction")
-        # Write the list of dictionaries to a YAML file
-        with open('app_config.yaml', 'w') as file:
-            data = [
-                {'adbDir': self.adbDirTextEdit.text()},
-                {'connectionPort': self.connectionPortTextEdit.text()}
-            ]
-            yaml.dump(data, file)
+        if os.path.exists('app_config.yaml'):
+            with open('app_config.yaml', 'r', encoding='utf-8') as file:
+                data = yaml.safe_load(file) or []
+        else:
+            data = []
+
+        if len(data) < 1 or not isinstance(data[0], dict):
+            data.insert(0, {})
+        if len(data) < 2 or not isinstance(data[1], dict):
+            data.insert(1, {})
+
+        data[0]['adbDir'] = self.adbDirTextEdit.text()
+        data[1]['connectionPort'] = self.connectionPortTextEdit.text()
+
+        runtime_config = None
+        for item in data:
+            if isinstance(item, dict) and 'controlMode' in item:
+                runtime_config = item
+                break
+        if runtime_config is None:
+            runtime_config = {}
+            data.append(runtime_config)
+
+        base_resolution_text = self.baseResolutionTextEdit.text().lower().replace(" ", "")
+        try:
+            base_width, base_height = [int(value) for value in base_resolution_text.split("x", 1)]
+        except ValueError:
+            base_width, base_height = 1280, 720
+            self.baseResolutionTextEdit.setText("1280x720")
+
+        runtime_config['controlMode'] = self.controlModeDropdown.currentText()
+        runtime_config['windowTitle'] = self.windowTitleTextEdit.text()
+        runtime_config['processName'] = self.processNameTextEdit.text()
+        runtime_config['baseResolution'] = [base_width, base_height]
+        runtime_config['ocrLanguages'] = self.ocrLanguageDropdown.currentText().split(',')
+        runtime_config['taskSelection'] = {
+            'startApp': self.startAppCheckbox.isChecked(),
+            'farmResources': self.farmResCheckbox.isChecked(),
+            'receiveReward': self.receiveRewardCheckbox.isChecked(),
+        }
+
+        with open('app_config.yaml', 'w', encoding='utf-8') as file:
+            yaml.safe_dump(data, file, allow_unicode=True, sort_keys=False)
 
     def add_empty_mission(self):
         # newMission = QtWidgets.QLineEdit()
@@ -1069,28 +1253,47 @@ class OctoUI(QtWidgets.QMainWindow):
 
         self.updateCharacterGridStatus()
 
+    def add_character_button(self, character):
+        row = int(len(self.charSelectionList) / 3)
+        col = len(self.charSelectionList) % 3
+        print(row, col, character)
+        charBtn = QtWidgets.QPushButton(character)
+        self.heroListGrid.addWidget(charBtn, row, col)
+        self.charSelectionList.append(charBtn)
+        charBtn.clicked.connect(lambda checked=False, _character=character, _btn=charBtn: self.selectCharacter(_character, _btn))
+        charBtn.setStyleSheet("QPushButton {background-color: #0E2369;}")
+        return charBtn
+
+    def save_character_list(self):
+        if not os.path.exists('app_config.yaml'):
+            return
+        with open('app_config.yaml', 'r', encoding='utf-8') as file:
+            config_data = yaml.safe_load(file) or []
+        for item in config_data:
+            if isinstance(item, dict) and "characterList" in item:
+                item["characterList"] = self.characterNameList
+                break
+        with open('app_config.yaml', 'w', encoding='utf-8') as file:
+            yaml.safe_dump(config_data, file, allow_unicode=True, sort_keys=False)
+
     def add_empty_character(self):
-        # newMission = QtWidgets.QLineEdit()
+        character, ok = QtWidgets.QInputDialog.getText(self, "新增角色", "角色名称")
+        character = character.strip()
+        if not ok or character == "":
+            return
+        if character in self.characterNameList:
+            return
+        self.characterNameList.append(character)
+        self.add_character_button(character)
+        self.save_character_list()
+        self.updateCharacterGridStatus()
 
-        newCharacterRowWidget = QtWidgets.QWidget()
-        newCharacterRowLayout = QtWidgets.QHBoxLayout()
-        newCharacterRowWidget.setLayout(newCharacterRowLayout)
-
-        dropdown = QtWidgets.QComboBox()
-        dropdown.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        delete_button = QPushButton()
-        delete_button.setProperty("list-button", True)
-        delete_button.setIcon(QIcon("delete_icon.png"))
-        # setting_button.connect(setting_button, QtCore.SIGNAL("clicked()"), lambda: self.selectMissionEdit(dropdown.currentText()))
-
-        # setting_button.setStyleSheet("QPushButton {border: 0px solid gray;}")
-
-        for missionName in self.missionNameList:
-            dropdown.addItem(missionName)
-        newCharacterRowLayout.addWidget(dropdown)
-        newCharacterRowLayout.addWidget(delete_button)
-        # self.mission.append(newCharacterRowWidget)
-        self.heroListGrid.addWidget(newCharacterRowWidget)
+    def clear_current_character_selection(self):
+        if self.editingMission.missionName == "None":
+            return
+        self.editingMission.characterList.clear()
+        self.selectedCharacterName = None
+        self.updateCharacterGridStatus()
 
     def selectMissionEdit(self, missionId):
         print("selectMissionEdit: ", missionId)
@@ -1138,6 +1341,7 @@ class OctoUI(QtWidgets.QMainWindow):
 
     def selectCharacter(self, character, btn: QPushButton):
         print("selectCharacter: ", character)
+        self.selectedCharacterName = character
         if character not in self.editingMission.characterList:
             self.editingMission.characterList.append(character)
             btn.setStyleSheet("QPushButton {background-color: #991B00;}")
@@ -1151,9 +1355,20 @@ class OctoUI(QtWidgets.QMainWindow):
             for btn in self.charSelectionList:
                 btn.setEnabled(False)
             self.missionRemoveButton.setEnabled(False)
+            if hasattr(self, "heroSettingClearButton"):
+                self.heroSettingClearButton.setEnabled(False)
+            if hasattr(self, "missionSettingAutoDeploySwitchWidget"):
+                self.missionSettingAutoDeploySwitchWidget.setEnabled(False)
+            if hasattr(self, "missionSettingDefaultDifficultySwitchWidget"):
+                self.missionSettingDefaultDifficultySwitchWidget.setEnabled(False)
+            if hasattr(self, "missionSettingDifficultyDropdown"):
+                self.missionSettingDifficultyDropdown.setEnabled(False)
+            if hasattr(self, "missionSettingMidMissionDropdown"):
+                self.missionSettingMidMissionDropdown.setEnabled(False)
         else:
-            isFull = len(self.editingMission.characterList) >= self.editingMission.maxCharCount
-            self.heroListGridTitle.setText("Character Selection: " + str(len(self.editingMission.characterList)) + "/"+ str(self.editingMission.maxCharCount))
+            isFull = self.editingMission.maxCharCount >= 0 and len(self.editingMission.characterList) >= self.editingMission.maxCharCount
+            maxCharCountText = str(self.editingMission.maxCharCount) if self.editingMission.maxCharCount >= 0 else "不限"
+            self.heroListGridTitle.setText("Character Selection: " + str(len(self.editingMission.characterList)) + "/"+ maxCharCountText)
             self.missionRemoveButton.setEnabled(True)
             for btn in self.charSelectionList:
                 btn.setEnabled(True)
@@ -1175,8 +1390,22 @@ class OctoUI(QtWidgets.QMainWindow):
                     mission.missionBtn.setStyleSheet("QPushButton {background-color: #0E2369;}")
             self.missionSettingFreeAutoSwitchWidget.setEnabled(True)
             self.missionSettingAutoOrManuelSwitchWidget.setEnabled(True)
+            if hasattr(self, "missionSettingAutoDeploySwitchWidget"):
+                self.missionSettingAutoDeploySwitchWidget.setEnabled(True)
+            if hasattr(self, "missionSettingDefaultDifficultySwitchWidget"):
+                self.missionSettingDefaultDifficultySwitchWidget.setEnabled(True)
+            if hasattr(self, "heroSettingClearButton"):
+                self.heroSettingClearButton.setEnabled(True)
             self.missionSettingFreeAutoSwitchWidget.setChecked(self.editingMission.freeAuto)
             self.missionSettingAutoOrManuelSwitchWidget.setChecked(self.editingMission.auto)
+            if hasattr(self, "missionSettingAutoDeploySwitchWidget"):
+                self.missionSettingAutoDeploySwitchWidget.setChecked(self.editingMission.autoDeploy)
+            if hasattr(self, "missionSettingDefaultDifficultySwitchWidget"):
+                self.missionSettingDefaultDifficultySwitchWidget.setChecked(self.editingMission.defaultDifficulty)
+            if hasattr(self, "missionSettingDifficultyDropdown"):
+                self.missionSettingDifficultyDropdown.setEnabled(not self.editingMission.defaultDifficulty)
+            if hasattr(self, "missionSettingMidMissionDropdown"):
+                self.missionSettingMidMissionDropdown.setEnabled(not self.editingMission.defaultDifficulty)
     def remove_missions(self):
         print("remove_missions")
         for mission in self.scheduleMissionList:
@@ -1202,6 +1431,8 @@ class OctoUI(QtWidgets.QMainWindow):
             print("maxCharCount: ", mission.maxCharCount)
             print("auto: ", mission.auto)
             print("freeAuto: ", mission.freeAuto)
+            print("autoDeploy: ", mission.autoDeploy)
+            print("defaultDifficulty: ", mission.defaultDifficulty)
             print("--------------------------------------------------------")
         filename = f'.\\active_config.yaml'
         OctoUtil.OctoUtil.parse_mission_to_preset_yaml(self.scheduleMissionList, filename)
@@ -1218,6 +1449,8 @@ class OctoUI(QtWidgets.QMainWindow):
             print("maxCharCount: ", mission.maxCharCount)
             print("auto: ", mission.auto)
             print("freeAuto: ", mission.freeAuto)
+            print("autoDeploy: ", mission.autoDeploy)
+            print("defaultDifficulty: ", mission.defaultDifficulty)
             print("--------------------------------------------------------")
         OctoUtil.OctoUtil.parse_mission_to_preset_yaml(self.scheduleMissionList, fileName)
 
@@ -1234,6 +1467,8 @@ class OctoUI(QtWidgets.QMainWindow):
             print("maxCharCount: ", mission.maxCharCount)
             print("auto: ", mission.auto)
             print("freeAuto: ", mission.freeAuto)
+            print("autoDeploy: ", mission.autoDeploy)
+            print("defaultDifficulty: ", mission.defaultDifficulty)
             print("--------------------------------------------------------")
         filename = f'.\\configs\\{filename}.yaml'
         OctoUtil.OctoUtil.parse_mission_to_preset_yaml(self.scheduleMissionList, filename)

@@ -39,9 +39,12 @@ class receiveReward:
         adb_is_connected = ADBClass.AdbSingleton.getInstance().connectDevice(adb_path=self.adb_path,
                                                                              adb_port=self.adb_port,
                                                                              retryCount=20)
+        if not adb_is_connected:
+            EASloggerSingleton.getInstance().info('./logs/log_test.txt', "连接模拟器失败，停止收奖励")
+            return False
         SetupAdbFlow = SetupAdb(adb_path=self.adb_path, adb_port=self.adb_port, retry_count=5)
         SetupAdbFlow.run()
-        EASloggerSingleton.getInstance().info('./logs/log_test.txt', "開始收獎勵")
+        EASloggerSingleton.getInstance().info('./logs/log_test.txt', "开始收奖励")
         OctoUtil.OctoUtil.backToMainScreen()
 
 
@@ -61,5 +64,5 @@ class receiveReward:
             ADBClass.AdbSingleton.getInstance().screen_capture('./img/rewardIconCheck.png')
             cvres = OctoUtil.OctoUtil.cv2CheckImgExist('./Icons/backButton.png', './img/rewardIconCheck.png')
             ADBClass.AdbSingleton.getInstance().tap(cvres)
-            EASloggerSingleton.getInstance().info('./logs/log_test.txt', "結束收獎勵")
+            EASloggerSingleton.getInstance().info('./logs/log_test.txt', "结束收奖励")
         return input

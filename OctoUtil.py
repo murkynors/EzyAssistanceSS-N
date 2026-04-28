@@ -94,7 +94,7 @@ class OctoUtil:
 
     @staticmethod
     def pad_number_with_zeros(string, number):
-        return f"{string}_{number:02d}"
+        return f"{string}_{int(number):02d}"
 
     @staticmethod
     def split_str(text):
@@ -151,20 +151,23 @@ class OctoUtil:
                 midMissionChar = ""
                 if level.midMission is not None:
                     midMissionChar = level.midMission
-                missionListStr += OctoUtil.pad_number_with_zeros(level.missionId + midMissionChar, level.difficulty)
+                missionKey = OctoUtil.pad_number_with_zeros(level.missionId + midMissionChar, level.difficulty)
+                missionListStr += missionKey
                 missionListStr += ","
 
-                data[0]['LevelAutomation'][OctoUtil.pad_number_with_zeros(level.missionId + midMissionChar, level.difficulty)] = {
+                data[0]['LevelAutomation'][missionKey] = {
                     'characters': charList,
                     'isAuto': level.auto,
-                    'isFreeAuto': level.freeAuto
+                    'isFreeAuto': level.freeAuto,
+                    'autoDeploy': getattr(level, 'autoDeploy', False),
+                    'defaultDifficulty': getattr(level, 'defaultDifficulty', False)
                 }
 
             # Write the list of dictionaries to a YAML file
             if len(missionListStr) > 0:
                 missionListStr = missionListStr[:-1]
                 data[1]['Material_Mission']['mission']+=str(missionListStr)
-            with open('active_config.yaml', 'w') as file:
+            with open('active_config.yaml', 'w', encoding='utf-8') as file:
                 yaml.dump(data, file)
 
     @staticmethod
@@ -212,33 +215,36 @@ class OctoUtil:
                 midMissionChar = ""
                 if level.midMission is not None:
                     midMissionChar = level.midMission
-                missionListStr += OctoUtil.pad_number_with_zeros(level.missionId + midMissionChar, level.difficulty)
+                missionKey = OctoUtil.pad_number_with_zeros(level.missionId + midMissionChar, level.difficulty)
+                missionListStr += missionKey
                 missionListStr += ","
 
-                if(not OctoUtil.pad_number_with_zeros(level.missionId + midMissionChar, level.difficulty) in list(data[0]['LevelAutomation'].keys())):
-                    data[0]['LevelAutomation'][
-                        OctoUtil.pad_number_with_zeros(level.missionId + midMissionChar, level.difficulty)] = {
+                if missionKey not in list(data[0]['LevelAutomation'].keys()):
+                    data[0]['LevelAutomation'][missionKey] = {
                         'characters': charList,
                         'isAuto': level.auto,
-                        'isFreeAuto': level.freeAuto
+                        'isFreeAuto': level.freeAuto,
+                        'autoDeploy': getattr(level, 'autoDeploy', False),
+                        'defaultDifficulty': getattr(level, 'defaultDifficulty', False)
                     }
                 else:
                     itrCounter = 1
-                    while (OctoUtil.pad_number_with_zeros(level.missionId + midMissionChar, level.difficulty) + "_" + str(itrCounter) in list(data[0]['LevelAutomation'].keys())):
+                    while missionKey + "_" + str(itrCounter) in list(data[0]['LevelAutomation'].keys()):
                         itrCounter += 1
 
-                    data[0]['LevelAutomation'][
-                        OctoUtil.pad_number_with_zeros(level.missionId + midMissionChar, level.difficulty) + "_" + str(itrCounter)] = {
+                    data[0]['LevelAutomation'][missionKey + "_" + str(itrCounter)] = {
                         'characters': charList,
                         'isAuto': level.auto,
-                        'isFreeAuto': level.freeAuto
+                        'isFreeAuto': level.freeAuto,
+                        'autoDeploy': getattr(level, 'autoDeploy', False),
+                        'defaultDifficulty': getattr(level, 'defaultDifficulty', False)
                     }
 
             # Write the list of dictionaries to a YAML file
             if len(missionListStr) > 0:
                 missionListStr = missionListStr[:-1]
                 data[1]['Material_Mission']['mission'] += str(missionListStr)
-            with open(fileName, 'w') as file:
+            with open(fileName, 'w', encoding='utf-8') as file:
                 yaml.dump(data, file)
 
     @staticmethod
@@ -247,6 +253,12 @@ class OctoUtil:
             ADBClass.AdbSingleton.getInstance().screen_capture(screenshotPath)
         screenshot = cv2.imread(screenshotPath, 0)
         pattern = cv2.imread(patternPath, 0)
+        if screenshot is None:
+            print(f"Screenshot not found or unreadable: {screenshotPath}")
+            return None
+        if pattern is None:
+            print(f"Template asset not found or unreadable: {patternPath}")
+            return None
         result = cv2.matchTemplate(pattern, screenshot, cv2.TM_CCOEFF_NORMED)
         threshold = 0.8
 
