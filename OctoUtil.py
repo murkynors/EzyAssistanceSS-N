@@ -160,7 +160,8 @@ class OctoUtil:
                     'isAuto': level.auto,
                     'isFreeAuto': level.freeAuto,
                     'autoDeploy': getattr(level, 'autoDeploy', False),
-                    'defaultDifficulty': getattr(level, 'defaultDifficulty', False)
+                    'defaultDifficulty': getattr(level, 'defaultDifficulty', False),
+                    'highRewardFirst': getattr(level, 'highRewardFirst', False)
                 }
 
             # Write the list of dictionaries to a YAML file
@@ -168,7 +169,7 @@ class OctoUtil:
                 missionListStr = missionListStr[:-1]
                 data[1]['Material_Mission']['mission']+=str(missionListStr)
             with open('active_config.yaml', 'w', encoding='utf-8') as file:
-                yaml.dump(data, file)
+                yaml.safe_dump(data, file, allow_unicode=True, sort_keys=False)
 
     @staticmethod
     def checkSelectedCharNum(top, left, bottom, right, inputImgPath = None):
@@ -225,7 +226,8 @@ class OctoUtil:
                         'isAuto': level.auto,
                         'isFreeAuto': level.freeAuto,
                         'autoDeploy': getattr(level, 'autoDeploy', False),
-                        'defaultDifficulty': getattr(level, 'defaultDifficulty', False)
+                        'defaultDifficulty': getattr(level, 'defaultDifficulty', False),
+                        'highRewardFirst': getattr(level, 'highRewardFirst', False)
                     }
                 else:
                     itrCounter = 1
@@ -237,7 +239,8 @@ class OctoUtil:
                         'isAuto': level.auto,
                         'isFreeAuto': level.freeAuto,
                         'autoDeploy': getattr(level, 'autoDeploy', False),
-                        'defaultDifficulty': getattr(level, 'defaultDifficulty', False)
+                        'defaultDifficulty': getattr(level, 'defaultDifficulty', False),
+                        'highRewardFirst': getattr(level, 'highRewardFirst', False)
                     }
 
             # Write the list of dictionaries to a YAML file
@@ -245,7 +248,7 @@ class OctoUtil:
                 missionListStr = missionListStr[:-1]
                 data[1]['Material_Mission']['mission'] += str(missionListStr)
             with open(fileName, 'w', encoding='utf-8') as file:
-                yaml.dump(data, file)
+                yaml.safe_dump(data, file, allow_unicode=True, sort_keys=False)
 
     @staticmethod
     def cv2CheckImgExist(patternPath, screenshotPath, isSingle=True, needScreenShot=False):

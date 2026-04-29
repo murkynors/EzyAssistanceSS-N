@@ -1,49 +1,52 @@
 - LevelAutomation:
-    ENCA_14:
-      autoDeploy: true
-      characters: ''
-      defaultDifficulty: false
+    WUP_11:
+      characters: 列奧尼德,麥莎,迪塔利奧
       isAuto: true
       isFreeAuto: false
-    EXP_13:
       autoDeploy: true
-      characters: "\u6B4C\u6D1B\u8389\u4E9E,\u6CF0\u767B,\u85E5\u5291\u5E2B \"\u5FD7\
-        \u9858\u8005\""
       defaultDifficulty: true
+      highRewardFirst: true
+    STARA_10:
+      characters: 科爾,澤維爾,拉維耶
       isAuto: true
       isFreeAuto: false
+      autoDeploy: true
+      defaultDifficulty: true
+      highRewardFirst: true
+    ENCC_10:
+      characters: 王國之刃 "紅隼",突擊騎土"神閃",倒吊人"兵蜂"
+      isAuto: true
+      isFreeAuto: false
+      autoDeploy: true
+      defaultDifficulty: true
+      highRewardFirst: true
+    EXP_10:
+      characters: 歌洛莉亞,泰登,藥劑師 "志願者"
+      isAuto: true
+      isFreeAuto: false
+      autoDeploy: true
+      defaultDifficulty: true
+      highRewardFirst: true
     SRD_06:
-      autoDeploy: false
-      characters: "\u5217\u5967\u5C3C\u5FB7,\u9EA5\u838E,\u8FEA\u5854\u5229\u5967"
-      defaultDifficulty: true
+      characters: 舞孃 "蝴蝶",山地射手 "銳眼",倒吊人"暗夜"
       isAuto: false
       isFreeAuto: false
-    STARA_12:
       autoDeploy: true
-      characters: "\u79D1\u723E,\u6FA4\u7DAD\u723E,\u62C9\u7DAD\u8036"
       defaultDifficulty: true
+      highRewardFirst: false
+    WEAA_10:
+      characters: 傭兵 "炎之魔女",光輝衛土"魔禁",倒吊人"執劍者"
       isAuto: true
       isFreeAuto: false
+      autoDeploy: true
+      defaultDifficulty: true
+      highRewardFirst: true
     TRTA_09:
-      autoDeploy: true
-      characters: "\u738B\u570B\u4E4B\u5203 \"\u7D05\u96BC\",\u7A81\u64CA\u9A0E\u571F\
-        \"\u795E\u9583\",\u5012\u540A\u4EBA\"\u5175\u8702\""
-      defaultDifficulty: true
+      characters: ''
       isAuto: true
       isFreeAuto: false
-    WEAA_11:
       autoDeploy: true
-      characters: "\u50AD\u5175 \"\u708E\u4E4B\u9B54\u5973\",\u5149\u8F1D\u885B\u571F\
-        \"\u9B54\u7981\",\u5012\u540A\u4EBA\"\u57F7\u528D\u8005\""
       defaultDifficulty: true
-      isAuto: true
-      isFreeAuto: false
-    WUP_11:
-      autoDeploy: true
-      characters: "\u821E\u5B43 \"\u8774\u8776\",\u5C71\u5730\u5C04\u624B \"\u92B3\
-        \u773C\",\u5012\u540A\u4EBA\"\u6697\u591C\""
-      defaultDifficulty: true
-      isAuto: true
-      isFreeAuto: false
+      highRewardFirst: true
 - Material_Mission:
-    mission: ENCA_14,STARA_12,WUP_11,EXP_13,SRD_06,WEAA_11,TRTA_09
+    mission: WUP_11,STARA_10,ENCC_10,EXP_10,SRD_06,WEAA_10,TRTA_09

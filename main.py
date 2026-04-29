@@ -7,6 +7,7 @@ import io
 import logging
 import os
 import random
+import re
 import string
 import sys
 import threading
@@ -46,7 +47,7 @@ class Signals(QtCore.QObject):
     finished = QtCore.Signal()
 class scheduleMission:
     @classmethod
-    def ConfigInit(cls, fullId, auto, freeAuto, characterList, autoDeploy=False, defaultDifficulty=False):
+    def ConfigInit(cls, fullId, auto, freeAuto, characterList, autoDeploy=False, defaultDifficulty=False, highRewardFirst=False):
         allMissionList = []
         missionId = None
         difficulty = None
@@ -84,7 +85,7 @@ class scheduleMission:
                     maxCharCount = allDifficultyCharCount[difficultyInfoArrIndex]
                 _id = random.randint(0, 100000)
 
-        return cls(missionId, missionName, midMission, difficulty, auto, freeAuto, autoDeploy, defaultDifficulty, _id, characterList, maxCharCount, allMissionList, allDifficultyCharCount, allDifficulty, allMiddleMission, missionArrIndex)
+        return cls(missionId, missionName, midMission, difficulty, auto, freeAuto, autoDeploy, defaultDifficulty, highRewardFirst, _id, characterList, maxCharCount, allMissionList, allDifficultyCharCount, allDifficulty, allMiddleMission, missionArrIndex)
 
     @classmethod
     def UIInit(cls, missionParam, missionBtn: QPushButton = None, missionRow: QWidget = None):
@@ -135,10 +136,11 @@ class scheduleMission:
         freeAuto = False
         autoDeploy = False
         defaultDifficulty = False
+        highRewardFirst = False
         _id = random.randint(0, 100000)
-        return cls(missionId, missionName, midMission, difficulty, auto, freeAuto, autoDeploy, defaultDifficulty, _id, characterList, maxCharCount, allMissionList, allDifficultyCharCount, allDifficulty, allMidMission, missionArrIndex, missionBtn,missionRow)
+        return cls(missionId, missionName, midMission, difficulty, auto, freeAuto, autoDeploy, defaultDifficulty, highRewardFirst, _id, characterList, maxCharCount, allMissionList, allDifficultyCharCount, allDifficulty, allMidMission, missionArrIndex, missionBtn,missionRow)
 
-    def __init__(self, missionId, missionName, midMission, difficulty, auto, freeAuto, autoDeploy, defaultDifficulty, _id, characterList, maxCharCount, allMissionList, allDifficultyCharCount, allDifficulty, allMidMission, missionArrIndex, missionBtn: QPushButton = None, missionRow: QWidget = None):
+    def __init__(self, missionId, missionName, midMission, difficulty, auto, freeAuto, autoDeploy, defaultDifficulty, highRewardFirst, _id, characterList, maxCharCount, allMissionList, allDifficultyCharCount, allDifficulty, allMidMission, missionArrIndex, missionBtn: QPushButton = None, missionRow: QWidget = None):
         self.missionId = missionId
         self.missionName = missionName
         self.midMission = midMission
@@ -147,6 +149,7 @@ class scheduleMission:
         self.freeAuto = freeAuto
         self.autoDeploy = autoDeploy
         self.defaultDifficulty = defaultDifficulty
+        self.highRewardFirst = highRewardFirst
         self.id = _id
         self.characterList = characterList
         self.maxCharCount = maxCharCount
@@ -731,6 +734,19 @@ class OctoUI(QtWidgets.QMainWindow):
         self.missionSettingDefaultDifficultyLayout.addWidget(self.missionSettingDefaultDifficultySwitchWidget)
 
         #--------------------------------------------------------------------------------------------------------------
+        self.missionSettingHighRewardWidget = QtWidgets.QWidget()
+        self.missionSettingHighRewardLayout = QtWidgets.QHBoxLayout()
+        self.missionSettingHighRewardWidget.setLayout(self.missionSettingHighRewardLayout)
+
+        self.missionSettingHighRewardLabelWidget = QtWidgets.QLabel("高额优先")
+        self.missionSettingHighRewardSwitchWidget = QtWidgets.QCheckBox()
+        self.missionSettingHighRewardSwitchWidget.clicked.connect(self.updateHighRewardFirstStatus)
+
+        self.missionSettingHighRewardLayout.addWidget(self.missionSettingHighRewardLabelWidget)
+        self.missionSettingHighRewardLayout.addStretch()
+        self.missionSettingHighRewardLayout.addWidget(self.missionSettingHighRewardSwitchWidget)
+
+        #--------------------------------------------------------------------------------------------------------------
         self.missionSettingDifficultyWidget = QtWidgets.QWidget()
         self.missionSettingDifficultyLayout = QtWidgets.QHBoxLayout()
         self.missionSettingDifficultyWidget.setLayout(self.missionSettingDifficultyLayout)
@@ -778,11 +794,13 @@ class OctoUI(QtWidgets.QMainWindow):
         self.missionSettingAutoOrManuelSwitchWidget.setEnabled(False)
         self.missionSettingAutoDeploySwitchWidget.setEnabled(False)
         self.missionSettingDefaultDifficultySwitchWidget.setEnabled(False)
+        self.missionSettingHighRewardSwitchWidget.setEnabled(False)
 
         self.missionSettingLayout.addWidget(self.missionSettingAutoOrManuelWidget)
         self.missionSettingLayout.addWidget(self.missionSettingFreeAutoWidget)
         self.missionSettingLayout.addWidget(self.missionSettingAutoDeployWidget)
         self.missionSettingLayout.addWidget(self.missionSettingDefaultDifficultyWidget)
+        self.missionSettingLayout.addWidget(self.missionSettingHighRewardWidget)
         self.missionSettingLayout.addWidget(self.missionSettingDifficultyWidget)
         self.missionSettingLayout.addWidget(self.missionSettingMidMissionWidget)
         self.missionSettingLayout.addStretch()
@@ -970,15 +988,14 @@ class OctoUI(QtWidgets.QMainWindow):
                 if child.widget():
                     child.widget().deleteLater()
             # self.flineEditsVbox.removeWidget(self.missionSettingWidget)
-            for idx in enumerate(list(config_data[0]['LevelAutomation'].keys())):
-                missionId = idx[1]
-                shortFormMissionId = config_data[1]['Material_Mission']['mission'].split(',')[idx[0]]
-                characters = config_data[0]['LevelAutomation'][missionId]["characters"]
-                isAuto = config_data[0]['LevelAutomation'][missionId]["isAuto"]
-                isFreeAuto = config_data[0]['LevelAutomation'][missionId]["isFreeAuto"]
-                autoDeploy = config_data[0]['LevelAutomation'][missionId].get("autoDeploy", False)
-                defaultDifficulty = config_data[0]['LevelAutomation'][missionId].get("defaultDifficulty", False)
-                mission = scheduleMission.ConfigInit(shortFormMissionId, isAuto, isFreeAuto, characters.split(','), autoDeploy, defaultDifficulty)
+            for shortFormMissionId, missionId, missionConfig in self.resolvePresetMissionEntries(config_data):
+                characters = missionConfig.get("characters", "")
+                isAuto = missionConfig.get("isAuto", True)
+                isFreeAuto = missionConfig.get("isFreeAuto", False)
+                autoDeploy = missionConfig.get("autoDeploy", False)
+                defaultDifficulty = missionConfig.get("defaultDifficulty", False)
+                highRewardFirst = missionConfig.get("highRewardFirst", False)
+                mission = scheduleMission.ConfigInit(shortFormMissionId, isAuto, isFreeAuto, characters.split(','), autoDeploy, defaultDifficulty, highRewardFirst)
                 # -----------------------------------------------------------------------------------------------------
                 newMissionRowWidget = QtWidgets.QWidget()
                 newMissionRowLayout = QtWidgets.QHBoxLayout()
@@ -1015,7 +1032,55 @@ class OctoUI(QtWidgets.QMainWindow):
                 self.updateCharacterGridStatus()
                 # -----------------------------------------------------------------------------------------------------
 
+        if self.scheduleMissionList:
+            self.selectMissionEdit(self.scheduleMissionList[0].id)
+        else:
+            self.editingMission = scheduleMission.UIInit(None)
+            self.updateCharacterGridStatus()
+
         print(self.scheduleMissionList)
+
+    def stripDuplicateMissionSuffix(self, missionId):
+        match = re.match(r'^(.*_\d{2})_\d+$', missionId)
+        if match:
+            return match.group(1)
+        return missionId
+
+    def resolvePresetMissionEntries(self, config_data):
+        levelAutomation = config_data[0].get('LevelAutomation', {})
+        missionText = config_data[1].get('Material_Mission', {}).get('mission', '')
+        missionOrder = [mission for mission in missionText.split(',') if mission]
+        usedMissionIds = set()
+        resolvedEntries = []
+
+        for shortFormMissionId in missionOrder:
+            missionId = None
+            if shortFormMissionId in levelAutomation and shortFormMissionId not in usedMissionIds:
+                missionId = shortFormMissionId
+            else:
+                duplicatePrefix = shortFormMissionId + "_"
+                for candidateMissionId in levelAutomation.keys():
+                    if candidateMissionId in usedMissionIds:
+                        continue
+                    if candidateMissionId.startswith(duplicatePrefix):
+                        duplicateSuffix = candidateMissionId[len(duplicatePrefix):]
+                        if duplicateSuffix.isdigit():
+                            missionId = candidateMissionId
+                            break
+
+            if missionId is None:
+                continue
+
+            usedMissionIds.add(missionId)
+            resolvedEntries.append((shortFormMissionId, missionId, levelAutomation[missionId]))
+
+        for missionId, missionConfig in levelAutomation.items():
+            if missionId in usedMissionIds:
+                continue
+            resolvedEntries.append((self.stripDuplicateMissionSuffix(missionId), missionId, missionConfig))
+
+        return resolvedEntries
+
     def onFlowFinished(self):
         # Get the result of the flow from the sender object
 
@@ -1112,7 +1177,9 @@ class OctoUI(QtWidgets.QMainWindow):
     def updateDefaultDifficultyStatus(self):
         self.editingMission.defaultDifficulty = self.missionSettingDefaultDifficultySwitchWidget.isChecked()
         self.missionSettingDifficultyDropdown.setEnabled(not self.editingMission.defaultDifficulty)
-        self.missionSettingMidMissionDropdown.setEnabled(not self.editingMission.defaultDifficulty)
+        self.missionSettingMidMissionDropdown.setEnabled(True)
+    def updateHighRewardFirstStatus(self):
+        self.editingMission.highRewardFirst = self.missionSettingHighRewardSwitchWidget.isChecked()
     def constructFlow(self, taskCheckBoxArray):
         self.MainFlow = []
         if taskCheckBoxArray[0]:
@@ -1361,6 +1428,8 @@ class OctoUI(QtWidgets.QMainWindow):
                 self.missionSettingAutoDeploySwitchWidget.setEnabled(False)
             if hasattr(self, "missionSettingDefaultDifficultySwitchWidget"):
                 self.missionSettingDefaultDifficultySwitchWidget.setEnabled(False)
+            if hasattr(self, "missionSettingHighRewardSwitchWidget"):
+                self.missionSettingHighRewardSwitchWidget.setEnabled(False)
             if hasattr(self, "missionSettingDifficultyDropdown"):
                 self.missionSettingDifficultyDropdown.setEnabled(False)
             if hasattr(self, "missionSettingMidMissionDropdown"):
@@ -1394,6 +1463,8 @@ class OctoUI(QtWidgets.QMainWindow):
                 self.missionSettingAutoDeploySwitchWidget.setEnabled(True)
             if hasattr(self, "missionSettingDefaultDifficultySwitchWidget"):
                 self.missionSettingDefaultDifficultySwitchWidget.setEnabled(True)
+            if hasattr(self, "missionSettingHighRewardSwitchWidget"):
+                self.missionSettingHighRewardSwitchWidget.setEnabled(True)
             if hasattr(self, "heroSettingClearButton"):
                 self.heroSettingClearButton.setEnabled(True)
             self.missionSettingFreeAutoSwitchWidget.setChecked(self.editingMission.freeAuto)
@@ -1402,10 +1473,12 @@ class OctoUI(QtWidgets.QMainWindow):
                 self.missionSettingAutoDeploySwitchWidget.setChecked(self.editingMission.autoDeploy)
             if hasattr(self, "missionSettingDefaultDifficultySwitchWidget"):
                 self.missionSettingDefaultDifficultySwitchWidget.setChecked(self.editingMission.defaultDifficulty)
+            if hasattr(self, "missionSettingHighRewardSwitchWidget"):
+                self.missionSettingHighRewardSwitchWidget.setChecked(self.editingMission.highRewardFirst)
             if hasattr(self, "missionSettingDifficultyDropdown"):
                 self.missionSettingDifficultyDropdown.setEnabled(not self.editingMission.defaultDifficulty)
             if hasattr(self, "missionSettingMidMissionDropdown"):
-                self.missionSettingMidMissionDropdown.setEnabled(not self.editingMission.defaultDifficulty)
+                self.missionSettingMidMissionDropdown.setEnabled(True)
     def remove_missions(self):
         print("remove_missions")
         for mission in self.scheduleMissionList:
@@ -1433,6 +1506,7 @@ class OctoUI(QtWidgets.QMainWindow):
             print("freeAuto: ", mission.freeAuto)
             print("autoDeploy: ", mission.autoDeploy)
             print("defaultDifficulty: ", mission.defaultDifficulty)
+            print("highRewardFirst: ", mission.highRewardFirst)
             print("--------------------------------------------------------")
         filename = f'.\\active_config.yaml'
         OctoUtil.OctoUtil.parse_mission_to_preset_yaml(self.scheduleMissionList, filename)
@@ -1451,6 +1525,7 @@ class OctoUI(QtWidgets.QMainWindow):
             print("freeAuto: ", mission.freeAuto)
             print("autoDeploy: ", mission.autoDeploy)
             print("defaultDifficulty: ", mission.defaultDifficulty)
+            print("highRewardFirst: ", mission.highRewardFirst)
             print("--------------------------------------------------------")
         OctoUtil.OctoUtil.parse_mission_to_preset_yaml(self.scheduleMissionList, fileName)
 
@@ -1469,6 +1544,7 @@ class OctoUI(QtWidgets.QMainWindow):
             print("freeAuto: ", mission.freeAuto)
             print("autoDeploy: ", mission.autoDeploy)
             print("defaultDifficulty: ", mission.defaultDifficulty)
+            print("highRewardFirst: ", mission.highRewardFirst)
             print("--------------------------------------------------------")
         filename = f'.\\configs\\{filename}.yaml'
         OctoUtil.OctoUtil.parse_mission_to_preset_yaml(self.scheduleMissionList, filename)

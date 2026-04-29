@@ -274,7 +274,7 @@ class mainMaterial:
                             ADBClass.AdbSingleton.getInstance().tap((875, 430))
                             return "ARRIVED"
 
-    def GotoMiddleStep(self, destinationPage):
+    def GotoMiddleStep(self, destinationPage, highRewardFirst=False):
         print("GotoDifficultyStep ||| destinationPage: ", destinationPage)
         if destinationPage[3] == "multi":
             middleNo = destinationPage[4]
@@ -287,6 +287,33 @@ class mainMaterial:
             screenshot = Image.open('./img/GotoMiddleStepScreenshot.png')
             cropped_image = screenshot.crop((left, top, right, bottom))
             cropped_image.save("./img/GotoMiddleStepScreenshotCroppedScreenshot.png")
+
+            if highRewardFirst and os.path.exists('./Icons/highReward.png'):
+                highRewardLeft = 45
+                highRewardTop = 80
+                highRewardRight = 1235
+                highRewardBottom = 453
+                highRewardCrop = screenshot.crop((highRewardLeft, highRewardTop, highRewardRight, highRewardBottom))
+                highRewardCrop.save("./img/GotoMiddleStepHighRewardScreenshot.png")
+                highRewardRes = self.cv2CheckImgExist(
+                    './Icons/highReward.png',
+                    './img/GotoMiddleStepHighRewardScreenshot.png',
+                    False
+                )
+                print("cv2 result (HIGH_REWARD): ", highRewardRes)
+                if highRewardRes:
+                    highRewardRes = sorted(highRewardRes, key=lambda pos: (pos[1], pos[0]))
+                    tapPos = (highRewardRes[0][0] + highRewardLeft, highRewardRes[0][1] + highRewardTop)
+                    EASloggerSingleton.getInstance().info('./logs/log_test.txt', "高额优先：选择高额分页")
+                    ADBClass.AdbSingleton.getInstance().tap(tapPos)
+                    return True
+
+            if destinationPage[1] == "WEA":
+                weaponTrialPos = self.findAvailableWeaponTrial(screenshot)
+                if weaponTrialPos is not None:
+                    EASloggerSingleton.getInstance().info('./logs/log_test.txt', "武器试炼：选择当前可用分页")
+                    ADBClass.AdbSingleton.getInstance().tap(weaponTrialPos)
+                    return True
 
             res = OCRClass.OCRSingleton.getInstance().findTextPosition(
                 './img/GotoMiddleStepScreenshotCroppedScreenshot.png', str(middleNo))
@@ -306,6 +333,36 @@ class mainMaterial:
                 tapPos = (cvres[middleNo - 1][0] + left, cvres[middleNo - 1][1] + top)
                 ADBClass.AdbSingleton.getInstance().tap(tapPos)
         return True
+
+    def findAvailableWeaponTrial(self, screenshot):
+        width, height = screenshot.size
+        weaponTrialCards = [
+            {'tap': (0.264, 0.760), 'crop': (0.171, 0.165, 0.356, 0.885)},
+            {'tap': (0.500, 0.760), 'crop': (0.407, 0.165, 0.593, 0.885)},
+            {'tap': (0.735, 0.760), 'crop': (0.643, 0.165, 0.828, 0.885)},
+        ]
+        grayscale = screenshot.convert('L')
+        candidates = []
+        for card in weaponTrialCards:
+            crop = (
+                int(card['crop'][0] * width),
+                int(card['crop'][1] * height),
+                int(card['crop'][2] * width),
+                int(card['crop'][3] * height),
+            )
+            tap = (int(card['tap'][0] * width), int(card['tap'][1] * height))
+            card_image = grayscale.crop(crop)
+            mean_brightness = float(np.array(card_image).mean())
+            print("weapon trial card brightness: ", tap, mean_brightness)
+            candidates.append((mean_brightness, tap))
+
+        if not candidates:
+            return None
+
+        candidates.sort(reverse=True)
+        if len(candidates) > 1 and candidates[0][0] - candidates[1][0] < 10:
+            return None
+        return candidates[0][1]
 
     def GotoDifficultyStep(self, destinationPage):
         print("GotoDifficultyStep ||| destinationPage: ", destinationPage)
@@ -380,90 +437,174 @@ class mainMaterial:
             else:
                 print("No number found.")
 
-    def getMissionListFromConfig(self):
+    def stripDuplicateMissionSuffix(self, missionId):
+        match = re.match(r'^(.*_\d{2})_\d+$', missionId)
+        if match:
+            return match.group(1)
+        return missionId
+
+    def resolveMissionConfigEntries(self, config_data):
+        levelAutomation = config_data[0].get('LevelAutomation', {})
+        missionText = config_data[1].get('Material_Mission', {}).get('mission', '')
+        missionOrder = [mission for mission in missionText.split(',') if mission]
+        usedMissionIds = set()
+        resolvedEntries = []
+
+        for shortFormMissionId in missionOrder:
+            missionId = None
+            if shortFormMissionId in levelAutomation and shortFormMissionId not in usedMissionIds:
+                missionId = shortFormMissionId
+            else:
+                duplicatePrefix = shortFormMissionId + "_"
+                for candidateMissionId in levelAutomation.keys():
+                    if candidateMissionId in usedMissionIds:
+                        continue
+                    if candidateMissionId.startswith(duplicatePrefix):
+                        duplicateSuffix = candidateMissionId[len(duplicatePrefix):]
+                        if duplicateSuffix.isdigit():
+                            missionId = candidateMissionId
+                            break
+
+            if missionId is None:
+                continue
+
+            usedMissionIds.add(missionId)
+            resolvedEntries.append((shortFormMissionId, missionId, levelAutomation[missionId]))
+
+        for missionId, missionConfig in levelAutomation.items():
+            if missionId in usedMissionIds:
+                continue
+            resolvedEntries.append((self.stripDuplicateMissionSuffix(missionId), missionId, missionConfig))
+
+        return resolvedEntries
+
+    def getMissionConfigEntriesFromConfig(self):
         with open('active_config.yaml', 'r', encoding='utf-8') as file:
             config_data = yaml.safe_load(file)
-            return config_data[1]['Material_Mission']['mission'].split(',')
+            return self.resolveMissionConfigEntries(config_data)
+
+    def getMissionListFromConfig(self):
+        return [mission for mission, _, _ in self.getMissionConfigEntriesFromConfig()]
+
+    def findAutoRunMissionButton(self, screenshot_path):
+        if os.path.exists('./Icons/autoRunMissionBtn.png'):
+            cvres = self.cv2CheckImgExist('./Icons/autoRunMissionBtn.png', screenshot_path)
+            print("cv2 result (autoRunMissionBtn): ", cvres)
+            if cvres is not None:
+                return cvres
+
+        ocr_res = OCRClass.OCRSingleton.getInstance().findTextPosition(screenshot_path, "代行")
+        print("ocr result (autoRunMissionBtn): ", ocr_res)
+        if ocr_res:
+            return ocr_res[1]
+        return None
+
+    def findContinueAutoRunButton(self, screenshot_path):
+        if os.path.exists('./Icons/IgnoreInstantAuto.png'):
+            cvres = self.cv2CheckImgExist('./Icons/IgnoreInstantAuto.png', screenshot_path)
+            print("cv2 result (IgnoreInstantAuto): ", cvres)
+            if cvres is not None:
+                return cvres
+
+        for text in ("继续代行", "继续"):
+            ocr_res = OCRClass.OCRSingleton.getInstance().findTextPosition(screenshot_path, text)
+            print(f"ocr result ({text}): ", ocr_res)
+            if ocr_res:
+                return ocr_res[1]
+        return None
+
+    def findBattleStartButton(self, screenshot_path):
+        if os.path.exists('./Icons/battleStart.png'):
+            cvres = self.cv2CheckImgExist('./Icons/battleStart.png', screenshot_path)
+            print("cv2 result (battleStart): ", cvres)
+            if cvres is not None:
+                return cvres
+
+        for text in ("开始", "開始"):
+            ocr_res = OCRClass.OCRSingleton.getInstance().findTextPosition(screenshot_path, text)
+            print(f"ocr result ({text}): ", ocr_res)
+            if ocr_res:
+                return ocr_res[1]
+        return None
 
     def startMissionAuto(self, mission_status, mission_code):
-        ADBClass.AdbSingleton.getInstance().screen_capture('./img/startMission.png')
-        res = OCRClass.OCRSingleton.getInstance().findTextPosition('./img/startMission.png', "代行")
-        # res = self.cv2CheckImgExist('./Icons/autoRunMissionBtn.png', './img/startMission.png')
-        print("cv2 result (startMission): ", res)
-        if res:
-            ADBClass.AdbSingleton.getInstance().tap(res[1])
-            time.sleep(1)
+        res = None
+        for _ in range(5):
             ADBClass.AdbSingleton.getInstance().screen_capture('./img/startMission.png')
+            res = self.findAutoRunMissionButton('./img/startMission.png')
+            if res is not None:
+                break
+            time.sleep(1)
+        if res is None:
+            EASloggerSingleton.getInstance().info('./logs/log_test.txt', "未找到代行按钮，停止刷图")
+            return ("error", "auto run button not found")
+
+        ADBClass.AdbSingleton.getInstance().tap(res)
+        time.sleep(1)
+        cvres = None
+        for _ in range(5):
+            ADBClass.AdbSingleton.getInstance().screen_capture('./img/startMission.png')
+            cvres = self.findContinueAutoRunButton('./img/startMission.png')
+            if cvres is not None:
+                break
+            time.sleep(1)
+        if cvres is not None:
+            with open('active_config.yaml', 'r', encoding='utf-8') as file:
+                config_data = yaml.safe_load(file)
+                # print(config_data[0]['LevelAutomation'][0][mission_code])
+                isFreeAuto = config_data[0]['LevelAutomation'][mission_code]['isFreeAuto']
+                if isFreeAuto:
+                    ADBClass.AdbSingleton.getInstance().tap((770, 366))
+                    time.sleep(1)
+                    ADBClass.AdbSingleton.getInstance().tap((640, 590))
+                    return ("success", "free auto")
+                else:
+                    ADBClass.AdbSingleton.getInstance().tap(cvres)
+            print("cv2 result (startMissionBtn): ", cvres)
+            time.sleep(1)
+        else:
             res = self.cv2CheckImgExist('./Icons/autoRunMissionBtn.png', './img/startMission.png')
             if res:
                 return ("error", "level not avalible for autorun yet")
-            cvres = self.cv2CheckImgExist('./Icons/IgnoreInstantAuto.png', './img/startMission.png')
+        with open('active_config.yaml', 'r', encoding='utf-8') as file:
+            config_data = yaml.safe_load(file)
+            autoDeploy = config_data[0]['LevelAutomation'][mission_code].get('autoDeploy', False)
+        if autoDeploy:
+            res = self.confirmAutoDeployCharacters()
+        else:
+            res = self.clickAutoCharacter(mission_status, mission_code)
+        print(res)
+        if res[0] == "success":
+            ADBClass.AdbSingleton.getInstance().screen_capture('./img/startMission.png')
+            cvres = self.cv2CheckImgExist('./Icons/StartAutoBattle.png', './img/startMission.png')
+            ADBClass.AdbSingleton.getInstance().tap(cvres)
+            print("cv2 result (startMissionBtn): ", cvres)
+            time.sleep(3)
+            ADBClass.AdbSingleton.getInstance().screen_capture('./img/startMission.png')
+            cvres = self.cv2CheckImgExist('./Icons/StartAutoBattle.png', './img/startMission.png')
             if cvres is not None:
-                with open('active_config.yaml', 'r', encoding='utf-8') as file:
-                    config_data = yaml.safe_load(file)
-                    # print(config_data[0]['LevelAutomation'][0][mission_code])
-                    isFreeAuto = config_data[0]['LevelAutomation'][mission_code]['isFreeAuto']
-                    if isFreeAuto:
-                        ADBClass.AdbSingleton.getInstance().tap((770, 366))
-                        time.sleep(1)
-                        ADBClass.AdbSingleton.getInstance().tap((640, 590))
-                        return ("success", "free auto")
-                    else:
-                        ADBClass.AdbSingleton.getInstance().tap(cvres)
-                print("cv2 result (startMissionBtn): ", cvres)
-                time.sleep(1)
-            with open('active_config.yaml', 'r', encoding='utf-8') as file:
-                config_data = yaml.safe_load(file)
-                autoDeploy = config_data[0]['LevelAutomation'][mission_code].get('autoDeploy', False)
-            if autoDeploy:
-                res = self.confirmAutoDeployCharacters()
-            else:
-                res = self.clickAutoCharacter(mission_status, mission_code)
-            print(res)
-            if res[0] == "success":
-                ADBClass.AdbSingleton.getInstance().screen_capture('./img/startMission.png')
-                cvres = self.cv2CheckImgExist('./Icons/StartAutoBattle.png', './img/startMission.png')
-                ADBClass.AdbSingleton.getInstance().tap(cvres)
-                print("cv2 result (startMissionBtn): ", cvres)
-                time.sleep(3)
-                ADBClass.AdbSingleton.getInstance().screen_capture('./img/startMission.png')
-                cvres = self.cv2CheckImgExist('./Icons/StartAutoBattle.png', './img/startMission.png')
-                if cvres is not None:
-                    return ("error", "Some Character Is not avaliable")
-                ADBClass.AdbSingleton.getInstance().screen_capture('./img/startMission.png')
-                cvres = self.cv2CheckImgExist('./Icons/autoRunMissionCompleted.png', './img/startMission.png')
-                if cvres is not None:
-                    ADBClass.AdbSingleton.getInstance().tap((640, 660))
-            return ("success", res)
+                return ("error", "Some Character Is not avaliable")
+            ADBClass.AdbSingleton.getInstance().screen_capture('./img/startMission.png')
+            cvres = self.cv2CheckImgExist('./Icons/autoRunMissionCompleted.png', './img/startMission.png')
+            if cvres is not None:
+                ADBClass.AdbSingleton.getInstance().tap((640, 660))
+        return ("success", res)
 
     def startMissionFight(self):
         ADBClass.AdbSingleton.getInstance().tap((1050, 630))
         time.sleep(5)
-        startMissionFightIsBreak = False
-        left = 1120
-        top = 510
-        right = 1250
-        bottom = 600
+        battleStartPos = None
         for i in range(10):
             ADBClass.AdbSingleton.getInstance().screen_capture('./img/startMission.png')
-
-            scanRes = OctoUtil.OctoUtil.crop_image('./img/startMission.png', (left, top, right, bottom),
-                                                   './img/startMissionCroppedScreenshot.png')
-
-            for item in scanRes:
-                text = item[0]
-                match = text in ('开始', '開始')
-                print("scanResPass: ", text, "||| match: ", match)
-
-                if match:
-                    startMissionFightIsBreak = True
-                    matchItem = item
-                    break
-            if startMissionFightIsBreak is True:
+            battleStartPos = self.findBattleStartButton('./img/startMission.png')
+            if battleStartPos is not None:
                 break
             time.sleep(1)
-        print("FINAL scanRes: ", scanRes)
-        ADBClass.AdbSingleton.getInstance().tap((matchItem[1][0] + left, matchItem[1][1] + top))
+        if battleStartPos is None:
+            EASloggerSingleton.getInstance().info('./logs/log_test.txt', "未找到开始战斗按钮，停止刷图")
+            return ("error", "battle start button not found")
+
+        ADBClass.AdbSingleton.getInstance().tap(battleStartPos)
 
         time.sleep(10)
 
@@ -512,9 +653,9 @@ class mainMaterial:
         if res:
             ADBClass.AdbSingleton.getInstance().tap(res)
         time.sleep(2)
-        return ("clickAutoCharacter")
+        return ("success", "manual battle")
 
-    def mapMissionToStatus(self, index, input):
+    def mapMissionToStatus(self, mission_config, input):
         # should upgrade to {"DailyMaterial" : ["EXP", "MON", "WEA", "SRD"], ...}
         # "EXP": Expereince, "MON": Money, "WUP": Weapon Upgrade, "WEA": Weapon, "SRD": Shard
         auto_dictionary = ["EXP", "WUP", "ENC", "STAR", "WEA", "SRD", "TRT"]
@@ -534,13 +675,10 @@ class mainMaterial:
                 else:
                     suffix = int(suffix.lstrip("_"))
                     levelNo = None
-                with open('active_config.yaml', 'r', encoding='utf-8') as file:
-                    config_data = yaml.safe_load(file)
-                    if config_data[0]['LevelAutomation'][list(config_data[0]['LevelAutomation'].keys())[index]][
-                        'isAuto'] is True:
-                        category = "DailyMaterialAuto"
-                    else:
-                        category = "DailyMaterialFight"
+                if mission_config.get('isAuto', True) is True:
+                    category = "DailyMaterialAuto"
+                else:
+                    category = "DailyMaterialFight"
         # for key in manual_dictionary:
         #     if key in input:
         #         prefix = key
@@ -571,26 +709,23 @@ class mainMaterial:
             EASloggerSingleton.getInstance().info('./logs/log_test.txt', "连接模拟器失败，停止刷图")
             return False
         EASloggerSingleton.getInstance().info('./logs/log_test.txt', "开始刷图")
-        missionList = self.getMissionListFromConfig()
-        with open('active_config.yaml', 'r', encoding='utf-8') as file:
-            config_data = yaml.safe_load(file)
-            missionActiveNameList = list(config_data[0]['LevelAutomation'].keys())
-        for index, mission in enumerate(missionList):
-            loggingString = "刷图: " + missionActiveNameList[index]
-            if config_data[0]['LevelAutomation'][missionActiveNameList[index]]['isAuto'] is True:
+        missionConfigEntries = self.getMissionConfigEntriesFromConfig()
+        for index, (mission, missionActiveName, missionConfig) in enumerate(missionConfigEntries):
+            loggingString = "刷图: " + missionActiveName
+            if missionConfig.get('isAuto', True) is True:
                 loggingString += " (自动)"
-                loggingString += " | " + config_data[0]['LevelAutomation'][missionActiveNameList[index]]['characters']
-                if config_data[0]['LevelAutomation'][missionActiveNameList[index]].get('autoDeploy', False):
+                loggingString += " | " + missionConfig.get('characters', '')
+                if missionConfig.get('autoDeploy', False):
                     loggingString += " (自动上阵)"
-                if config_data[0]['LevelAutomation'][missionActiveNameList[index]]['isFreeAuto'] is True:
+                if missionConfig.get('isFreeAuto', False) is True:
                     loggingString += " (章鱼罐头)"
             else:
                 loggingString += " (手动)"
 
             EASloggerSingleton.getInstance().info('./logs/log_test.txt', loggingString)
-            missionActiveName = missionActiveNameList[index]
-            defaultDifficulty = config_data[0]['LevelAutomation'][missionActiveName].get('defaultDifficulty', False)
-            missionStatus = self.mapMissionToStatus(index, mission)
+            defaultDifficulty = missionConfig.get('defaultDifficulty', False)
+            highRewardFirst = missionConfig.get('highRewardFirst', False)
+            missionStatus = self.mapMissionToStatus(missionConfig, mission)
             print("mission status: ", missionStatus)
             det_res = self.checkCurrentPageStatus(missionStatus)
             navigation_attempts = 0
@@ -610,7 +745,7 @@ class mainMaterial:
             if navigation_attempts >= 20:
                 EASloggerSingleton.getInstance().info('./logs/log_test.txt', "跳转资源菜单超时，停止刷图")
                 return False
-            GotoMiddleRes = self.GotoMiddleStep(missionStatus)
+            GotoMiddleRes = self.GotoMiddleStep(missionStatus, highRewardFirst)
             if GotoMiddleRes is False:
                 return False
             if defaultDifficulty:
@@ -623,9 +758,21 @@ class mainMaterial:
                 time.sleep(2)
                 if missionStatus[0] == "DailyMaterialAuto":
                     startMissionRes = self.startMissionAuto(missionStatus, missionActiveName)
+                    if not startMissionRes or startMissionRes[0] != "success":
+                        EASloggerSingleton.getInstance().info(
+                            './logs/log_test.txt',
+                            f"代行启动失败：{startMissionRes}"
+                        )
+                        return False
                 elif missionStatus[0] == "DailyMaterialFight":
                     startMissionRes = self.startMissionFight()
-                    loggingString = "结束刷图: " + missionActiveNameList[index] + " (手动)" + " | " + "已开始行动" + str(index) + "次"
+                    if not startMissionRes or startMissionRes[0] != "success":
+                        EASloggerSingleton.getInstance().info(
+                            './logs/log_test.txt',
+                            f"手动战斗启动失败：{startMissionRes}"
+                        )
+                        return False
+                    loggingString = "结束刷图: " + missionActiveName + " (手动)" + " | " + "已开始行动" + str(index) + "次"
                     EASloggerSingleton.getInstance().info('./logs/log_test.txt', loggingString)
         # ADBClass.AdbSingleton.getInstance().screen_capture("loginCapture.png")
 
